@@ -1,0 +1,80 @@
+name: Build Windows installer and release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Expand desktop source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src\PhomemoStudio | Out-Null
+          Expand-Archive -Path native_src_v3.zip -DestinationPath src\PhomemoStudio -Force
+          Expand-Archive -Path web_v3.zip -DestinationPath src\PhomemoStudio -Force
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content version.txt -Raw).Trim()
+          "value=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore src/PhomemoStudio/PhomemoStudio.csproj
+
+      - name: Publish Windows app
+        shell: pwsh
+        run: |
+          dotnet publish src/PhomemoStudio/PhomemoStudio.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=${{ steps.version.outputs.value }} `
+            -p:FileVersion=${{ steps.version.outputs.value }}.0 `
+            -p:AssemblyVersion=${{ steps.version.outputs.value }}.0 `
+            -o publish
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.value }}" installer\PhomemoStudio.iss
+          $hash = (Get-FileHash dist\PhomemoStudioSetup.exe -Algorithm SHA256).Hash
+          "$hash  PhomemoStudioSetup.exe" | Out-File -Encoding ascii dist\PhomemoStudioSetup.exe.sha256
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhomemoStudio-${{ steps.version.outputs.value }}
+          path: |
+            dist/PhomemoStudioSetup.exe
+            dist/PhomemoStudioSetup.exe.sha256
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.version.outputs.value }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Aplicación de escritorio para Windows con Bluetooth nativo D30, instalador y actualizaciones integradas."
+          }
+          gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
