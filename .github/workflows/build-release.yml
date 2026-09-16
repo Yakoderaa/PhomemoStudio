@@ -15,13 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Expand native desktop source
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path src\PhomemoStudio | Out-Null
-          tar.exe -xf native_src_v3.zip -C src\PhomemoStudio
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo extraer native_src_v3.zip" }
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
