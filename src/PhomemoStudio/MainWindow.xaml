@@ -8,6 +8,49 @@
         WindowStartupLocation="CenterScreen"
         Background="#0B1020">
   <Grid>
-    <wv2:WebView2 x:Name="Web" DefaultBackgroundColor="#0B1020" />
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Border x:Name="UpdateBanner"
+            Grid.Row="0"
+            Visibility="Collapsed"
+            Background="#17233A"
+            BorderBrush="#334A70"
+            BorderThickness="0,0,0,1"
+            Padding="14,9">
+      <DockPanel LastChildFill="True">
+        <Button x:Name="InstallUpdateButton"
+                DockPanel.Dock="Right"
+                Margin="14,0,0,0"
+                Padding="14,7"
+                MinWidth="150"
+                Background="#FF8A2A"
+                Foreground="White"
+                BorderThickness="0"
+                FontWeight="SemiBold"
+                Cursor="Hand"
+                Click="InstallUpdate_Click">
+          Actualizar y reiniciar
+        </Button>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock x:Name="UpdateTitle"
+                     Foreground="White"
+                     FontWeight="SemiBold"
+                     FontSize="13"
+                     Text="Actualización lista" />
+          <TextBlock x:Name="UpdateText"
+                     Margin="0,2,0,0"
+                     Foreground="#C9D4E8"
+                     FontSize="12"
+                     Text="La nueva versión se descargó y verificó dentro de Phomemo Studio." />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <wv2:WebView2 x:Name="Web"
+                  Grid.Row="1"
+                  DefaultBackgroundColor="#0B1020" />
   </Grid>
 </Window>
