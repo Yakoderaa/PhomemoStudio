@@ -69,7 +69,17 @@ jobs:
           $app = $app.Replace($oldStatus, $newStatus)
           Set-Content -Path $outputPath -Value $app -Encoding utf8 -NoNewline
 
+          # Load the small desktop-only shell after the legacy editor bundle. It
+          # owns the working Buscar actualizaciones and Cerrar app actions.
+          $indexPath = "src\PhomemoStudio\web\index.html"
+          $index = Get-Content $indexPath -Raw
+          if ($index -notmatch 'desktop-shell\.js') {
+            $index = $index.Replace('<script src="app.js"></script>', '<script src="app.js"></script>' + [Environment]::NewLine + '  <script src="desktop-shell.js"></script>')
+            Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
+          }
+
           node --check $outputPath
+          node --check "src\PhomemoStudio\web\desktop-shell.js"
           Write-Host "Restored + hotfixed $outputPath ($((Get-Item $outputPath).Length) bytes)"
 
       - name: Setup .NET
