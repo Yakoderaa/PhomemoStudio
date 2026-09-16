@@ -22,7 +22,9 @@ public sealed class UpdateService : IDisposable
     public UpdateService()
     {
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PhomemoStudio", CurrentVersion.ToString()));
-        _http.Timeout = TimeSpan.FromMinutes(3);
+        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _http.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
+        _http.Timeout = TimeSpan.FromSeconds(25);
     }
 
     public static Version CurrentVersion
@@ -48,7 +50,7 @@ public sealed class UpdateService : IDisposable
 
             var expectedHash = await GetExpectedHashAsync(release.Value.HashUrl, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(expectedHash))
-                return null;
+                throw new InvalidOperationException("La versión nueva no publicó su archivo SHA-256. No voy a instalar una actualización sin verificarla.");
 
             var updateDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -61,8 +63,10 @@ public sealed class UpdateService : IDisposable
                 var partPath = installerPath + ".part";
                 try { if (File.Exists(partPath)) File.Delete(partPath); } catch { }
 
-                using var response = await _http.GetAsync(
-                    release.Value.InstallerUrl,
+                using var request = new HttpRequestMessage(HttpMethod.Get, release.Value.InstallerUrl);
+                request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
+                using var response = await _http.SendAsync(
+                    request,
                     HttpCompletionOption.ResponseHeadersRead,
                     cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
@@ -76,7 +80,7 @@ public sealed class UpdateService : IDisposable
                 if (!HashMatches(partPath, expectedHash))
                 {
                     try { File.Delete(partPath); } catch { }
-                    return null;
+                    throw new InvalidDataException("La descarga terminó, pero el SHA-256 no coincide con el publicado en GitHub.");
                 }
 
                 File.Move(partPath, installerPath, true);
@@ -106,7 +110,7 @@ public sealed class UpdateService : IDisposable
         Application.Current.Shutdown();
     }
 
-    // Se mantiene para actualizar correctamente instalaciones V3.0/V3.0.1.
+    // Compatibilidad con instalaciones V3.0/V3.0.1 que todavía llaman este método.
     public async Task CheckAndOfferUpdateAsync(Window owner, bool quietIfCurrent = true)
     {
         try
@@ -115,7 +119,7 @@ public sealed class UpdateService : IDisposable
             if (prepared is null)
             {
                 if (!quietIfCurrent)
-                    MessageBox.Show(owner, "Ya tenés la última versión.", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(owner, $"Ya tenés la última versión ({CurrentVersion}).", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -125,21 +129,28 @@ public sealed class UpdateService : IDisposable
             if (answer == MessageBoxResult.Yes)
                 InstallPreparedUpdate();
         }
-        catch
+        catch (Exception ex)
         {
-            // Una falla del actualizador nunca debe impedir usar la impresora.
+            if (!quietIfCurrent)
+                MessageBox.Show(owner, "No pude comprobar actualizaciones.\n\n" + ex.GetBaseException().Message,
+                    "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
     private async Task<(Version Version, string InstallerUrl, string? HashUrl, string? Notes)?> GetLatestReleaseAsync(CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync(LatestReleaseApi, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        var cacheBust = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{LatestReleaseApi}?t={cacheBust}");
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
+        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"GitHub respondió {(int)response.StatusCode} ({response.ReasonPhrase}).");
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
         var root = doc.RootElement;
         var tag = root.GetProperty("tag_name").GetString() ?? string.Empty;
-        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest)) return null;
+        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
+            throw new InvalidDataException($"GitHub publicó una versión que no pude interpretar: {tag}");
 
         string? installerUrl = null;
         string? hashUrl = null;
@@ -151,7 +162,9 @@ public sealed class UpdateService : IDisposable
             else if (name.Equals("PhomemoStudioSetup.exe.sha256", StringComparison.OrdinalIgnoreCase)) hashUrl = url;
         }
 
-        if (string.IsNullOrWhiteSpace(installerUrl)) return null;
+        if (string.IsNullOrWhiteSpace(installerUrl))
+            throw new InvalidDataException($"La release v{latest} no contiene PhomemoStudioSetup.exe.");
+
         var notes = root.TryGetProperty("body", out var body) ? body.GetString() : null;
         return (latest, installerUrl, hashUrl, notes);
     }
@@ -159,7 +172,11 @@ public sealed class UpdateService : IDisposable
     private async Task<string?> GetExpectedHashAsync(string? hashUrl, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(hashUrl)) return null;
-        var text = await _http.GetStringAsync(hashUrl, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, hashUrl);
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
+        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return text.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
     }
 
