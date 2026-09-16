@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <title>Phomemo Studio D30</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div><strong>Phomemo Studio</strong><span>D30 · V3.0 Desktop · Bluetooth nativo de Windows · actualizaciones automáticas</span></div>
+    </div>
+    <div class="printer-strip">
+      <div class="status-pill" id="connectionPill"><span class="dot"></span><span id="connectionText">Desconectada</span></div>
+      <div class="status-item"><span>🔋</span><strong id="batteryText">—</strong></div>
+      <div class="status-item"><span>🏷️</span><strong id="paperText">—</strong></div>
+      <div class="status-item roll-status"><span>Rollo</span><strong id="rollTopText">—</strong></div>
+      <button class="button primary" id="connectBtn">Conectar D30</button>
+    </div>
+  </header>
+
+  <main class="app-grid">
+    <aside class="sidebar left-panel">
+      <div class="section-head">
+        <div><h2>Biblioteca</h2><p>Plantillas por grupo</p></div>
+        <button class="icon-button" id="newTemplateBtn" title="Nueva plantilla">＋</button>
+      </div>
+      <div class="library-create-row"><button class="button primary full library-blank-btn" id="libraryBlankBtn">＋ Nueva etiqueta blanca</button><button class="button ghost full" id="newCafeGroupBtn">＋ Grupo / cafetería</button></div>
+      <div class="search-row"><input id="searchInput" placeholder="Buscar plantilla…" /></div>
+      <div class="group-row">
+        <select id="groupFilter"><option value="">Todos los grupos</option></select>
+        <button class="icon-button small" id="newGroupBtn" title="Nuevo grupo / cafetería">＋</button>
+      </div>
+      <div class="group-strip" id="groupStrip"></div>
+      <div id="templateList" class="template-list"></div>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-toolbar">
+        <div class="toolbar-left">
+          <button class="tool-button" id="blankTemplateBtn" title="Crear una etiqueta 12×40 completamente vacía">□ Vacía</button>
+          <button class="tool-button active" id="addTextBtn">T Texto</button>
+          <button class="tool-button" id="addRectBtn">▭ Marco</button>
+          <button class="tool-button" id="addLineBtn">╱ Línea</button>
+          <label class="tool-button file-button">▧ Imagen<input id="imageInput" type="file" accept="image/*" hidden /></label>
+        </div>
+        <div class="toolbar-right">
+          <select id="labelSizeSelect" title="Tamaño de etiqueta">
+            <option value="40x12">12 × 40 mm · D30</option>
+            <option value="30x12">30 × 12 mm</option>
+            <option value="22x12">22 × 12 mm</option>
+            <option value="12x12">12 × 12 mm</option>
+            <option value="30x14">30 × 14 mm</option>
+            <option value="40x15">40 × 15 mm</option>
+            <option value="30x15">30 × 15 mm</option>
+          </select>
+          <button class="button ghost" id="saveTemplateBtn">Guardar</button>
+          <button class="button ghost" id="saveCopyBtn">Guardar copia</button>
+          <button class="button ghost" id="exportPngBtn" title="Exportar el diseño actual como PNG de alta resolución">PNG</button>
+          <button class="button ghost" id="exportSvgBtn" title="Exportar texto, líneas y marcos como vectores SVG">SVG</button>
+          <button class="button" id="printCurrentBtn">Imprimir actual</button>
+        </div>
+      </div>
+
+      <div class="editor-shell">
+        <div class="ruler-label"><span id="sizeText">40 × 12 mm</span><span>203 dpi · vista previa HiDPI 4× · render de impresión HQ 8×</span></div>
+        <div class="canvas-stage" id="canvasStage">
+          <canvas id="labelCanvas" width="320" height="96"></canvas>
+        </div>
+        <div class="editor-hint">Arrastrá para mover. Tiradores laterales/esquinas para escalar · Shift alterna proporción · Alt escala desde el centro · Supr elimina.</div>
+      </div>
+
+      <div class="properties" id="propertiesPanel">
+        <div class="empty-properties" id="emptyProperties">Seleccioná un elemento para editarlo.</div>
+        <div id="textProperties" class="prop-group hidden">
+          <label class="text-edit-label">Texto<textarea id="propText" rows="3" spellcheck="false"></textarea></label>
+          <label>Tamaño<input id="propFontSize" type="number" min="6" max="72" /></label>
+          <label>Fuente<input id="propFont" list="fontOptions" /></label>
+          <datalist id="fontOptions">
+            <option value="Segoe Print"></option>
+            <option value="Comic Sans MS"></option>
+            <option value="Bahnschrift SemiCondensed"></option>
+            <option value="Bahnschrift"></option>
+            <option value="Arial Narrow"></option>
+            <option value="Arial"></option>
+            <option value="Verdana"></option>
+            <option value="Trebuchet MS"></option>
+            <option value="Georgia"></option>
+            <option value="Courier New"></option>
+          </datalist>
+          <label>Espaciado<input id="propLetterSpacing" type="number" min="-2" max="12" step="0.5" /></label>
+          <label class="check"><input id="propBold" type="checkbox" /> Negrita</label>
+          <label class="check"><input id="propAutoFit" type="checkbox" /> Ajustar al ancho</label>
+        </div>
+        <div id="imageProperties" class="prop-group hidden">
+          <label class="check"><input id="propLockAspect" type="checkbox" checked /> Mantener proporción</label>
+          <label>Imagen
+            <select id="propImageMode">
+              <option value="lineart">Líneas nítidas</option>
+              <option value="normal">Normal</option>
+            </select>
+          </label>
+        </div>
+        <div id="shapeProperties" class="prop-group hidden">
+          <label>Grosor<input id="propStroke" type="number" min="1" max="8" /></label>
+        </div>
+        <div id="commonProperties" class="prop-group hidden">
+          <label>X<input id="propX" type="number" /></label>
+          <label>Y<input id="propY" type="number" /></label>
+          <label>Ancho<input id="propW" type="number" min="2" /></label>
+          <label>Alto<input id="propH" type="number" min="2" /></label>
+          <button class="button danger subtle" id="deleteElementBtn">Eliminar</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="sidebar right-panel">
+      <div class="section-head">
+        <div><h2>Cola</h2><p id="queueSummary">0 etiquetas</p></div>
+        <button class="icon-button small" id="clearQueueBtn" title="Vaciar cola">×</button>
+      </div>
+      <div id="queueList" class="queue-list"></div>
+      <div class="queue-actions">
+        <div class="warning hidden" id="rollWarning"></div>
+        <div class="print-session hidden" id="printSessionBox"><div class="print-session-head"><strong id="printSessionTitle">Trabajo</strong><button class="button danger subtle hidden" id="cancelPrintJobBtn">Cancelar</button></div><div id="printSessionDetail" class="print-session-detail"></div><div class="progress"><span id="printSessionProgress"></span></div></div>
+        <button class="button primary big" id="printQueueBtn">Imprimir todo</button>
+      </div>
+
+      <div class="divider"></div>
+      <div class="section-head compact"><div><h2>Rollo</h2><p>Conteo estimado</p></div></div>
+      <div class="roll-card">
+        <label>Nombre<input id="rollName" placeholder="12×40 · 80 etiquetas" /></label>
+        <div class="two-cols">
+          <label>Inicial<input id="rollTotal" type="number" min="1" value="80" /></label>
+          <label>Restantes<input id="rollRemaining" type="number" min="0" value="80" /></label>
+        </div>
+        <div class="progress"><span id="rollProgress"></span></div>
+        <div class="roll-meta"><span id="rollPercent">100%</span><span id="rollEstimate">80 etiquetas</span></div>
+        <button class="button ghost full" id="newRollBtn">Colocar rollo nuevo</button>
+        <button class="button full" id="calibrateRollBtn" title="Envía una etiqueta 12×40 completamente blanca para que el sensor haga el ciclo de posicionamiento">Calibrar rollo</button>
+        <div class="calibration-note">Hace pasar una etiqueta totalmente blanca. No imprime negro ni descuenta el contador.</div>
+      </div>
+
+      <div class="divider"></div>
+      <details class="settings-box">
+        <summary>Ajustes de impresión</summary>
+        <label>Densidad <strong id="densityValue">6</strong><input id="densityRange" type="range" min="1" max="8" value="6" /></label>
+        <label class="check"><input id="continuousCheck" type="checkbox" /> Rollo continuo (sin separación)</label>
+        <label>Avance extra (dots)<input id="feedDots" type="number" min="0" max="255" value="0" /></label>
+        <label class="check"><input id="autoReconnectCheck" type="checkbox" checked /> Reconexión automática si la D30 entra en reposo</label>
+        <label class="check"><input id="autoPowerConnectCheck" type="checkbox" checked /> Conectar automáticamente cuando se encienda la D30</label>
+        <label class="check"><input id="autoCalibrateNewRollCheck" type="checkbox" /> Calibrar automáticamente al colocar un rollo nuevo</label>
+        <button class="button ghost full" id="refreshStatusBtn">Actualizar batería/estado</button>
+        <div id="btDiagnostic" style="margin-top:8px;font-size:10px;color:#8e98aa;line-height:1.35">Bluetooth: sin iniciar.</div>
+      </details>
+
+      <div class="divider"></div>
+      <div class="sync-card">
+        <div><strong>Sincronización</strong><span>Apple / nube</span></div>
+        <button class="button ghost" id="applePlaceholderBtn">Próxima etapa</button>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="templateDialog">
+    <form method="dialog" class="dialog-card" id="templateForm">
+      <h3 id="templateDialogTitle">Guardar plantilla</h3>
+      <label>Nombre<input id="templateNameInput" required /></label>
+      <label>Grupo<select id="templateGroupInput"></select></label>
+      <div class="dialog-actions"><button class="button ghost" value="cancel">Cancelar</button><button class="button primary" value="default" id="confirmSaveTemplate">Guardar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="groupDialog">
+    <form method="dialog" class="dialog-card">
+      <h3>Nuevo grupo / cafetería</h3>
+      <label>Nombre del grupo<input id="groupNameInput" placeholder="Ej. Café Centro" required /></label>
+      <div class="dialog-actions"><button class="button ghost" value="cancel">Cancelar</button><button class="button primary" value="default" id="confirmNewGroup">Crear</button></div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
