@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
@@ -22,26 +21,35 @@ public sealed class D30BluetoothService : IDisposable
 
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private readonly SemaphoreSlim _sendGate = new(1, 1);
+
     private BluetoothLEDevice? _device;
     private GattDeviceService? _service;
+    private GattSession? _session;
     private GattCharacteristic? _write;
     private GattCharacteristic? _notify;
     private bool _notificationsEnabled;
+
     private NativeSettings _settings = NativeSettings.Load();
     private int? _battery;
     private string? _paper;
     private string? _cover;
     private string? _firmware;
     private string? _lastMessage;
+    private DateTimeOffset _connectedAtUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastStatusQueryUtc = DateTimeOffset.MinValue;
 
-    public bool IsConnected => _device?.ConnectionStatus == BluetoothConnectionStatus.Connected && _write is not null;
+    public bool IsConnected =>
+        _write is not null &&
+        (_device?.ConnectionStatus == BluetoothConnectionStatus.Connected ||
+         _session?.SessionStatus == GattSessionStatus.Active);
 
     public async Task<PrinterSnapshot> ConnectAsync(bool forceScan = false)
     {
         await _connectGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (IsConnected) return Snapshot("Ya conectada");
+            if (IsConnected)
+                return Snapshot("D30 conectada");
 
             Exception? savedError = null;
             if (!forceScan && _settings.BluetoothAddress is ulong savedAddress)
@@ -58,11 +66,11 @@ public sealed class D30BluetoothService : IDisposable
                 }
             }
 
-            var candidate = await ScanForD30Async(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            var candidate = await ScanForD30Async(TimeSpan.FromSeconds(12)).ConfigureAwait(false);
             if (candidate is null)
             {
                 throw new InvalidOperationException(savedError is null
-                    ? "No encontré una D30 encendida. Verificá que esté prendida y cerca de la PC."
+                    ? "No encontré una D30 encendida. Verificá que esté prendida, cerca de la PC y que Bluetooth esté activado."
                     : $"No pude reconectar la D30 guardada ni encontrar otra. {savedError.Message}");
             }
 
@@ -77,16 +85,19 @@ public sealed class D30BluetoothService : IDisposable
 
     public async Task<PrinterSnapshot> AutoConnectAsync()
     {
-        if (IsConnected) return Snapshot("Conectada");
-        if (!_settings.AutoConnect) return Snapshot("Autoconexión desactivada");
+        if (IsConnected)
+            return Snapshot("D30 conectada");
+        if (!_settings.AutoConnect)
+            return Snapshot("Autoconexión desactivada");
+
         try
         {
             return await ConnectAsync(false).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _lastMessage = ex.Message;
-            return Snapshot(ex.Message, ok: false);
+            _lastMessage = ex.GetBaseException().Message;
+            return Snapshot(_lastMessage, ok: false);
         }
     }
 
@@ -106,7 +117,8 @@ public sealed class D30BluetoothService : IDisposable
                 var nameMatch = name.Contains("D30", StringComparison.OrdinalIgnoreCase) ||
                                 name.Contains("PHOMEMO", StringComparison.OrdinalIgnoreCase);
                 var serviceMatch = args.Advertisement.ServiceUuids.Any(u => ServiceUuids.Contains(u));
-                if (!nameMatch && !serviceMatch) return;
+                if (!nameMatch && !serviceMatch)
+                    return;
 
                 var displayName = string.IsNullOrWhiteSpace(name) ? "D30" : name;
                 var current = (Address: args.BluetoothAddress, Name: displayName, Rssi: args.RawSignalStrengthInDBm);
@@ -161,6 +173,12 @@ public sealed class D30BluetoothService : IDisposable
         }
 
         _service = foundService ?? throw new InvalidOperationException(last?.Message ?? "La D30 no expuso un servicio Bluetooth compatible.");
+
+        _session = _service.Session;
+        _session.SessionStatusChanged += Session_SessionStatusChanged;
+        if (_session.CanMaintainConnection)
+            _session.MaintainConnection = true;
+
         var charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false);
         if (charsResult.Status != GattCommunicationStatus.Success)
             throw new InvalidOperationException($"No pude leer los canales GATT ({charsResult.Status}).");
@@ -181,6 +199,9 @@ public sealed class D30BluetoothService : IDisposable
         _settings.DeviceName = string.IsNullOrWhiteSpace(_device.Name) ? hintedName ?? "D30" : _device.Name;
         _settings.AutoConnect = true;
         _settings.Save();
+
+        _connectedAtUtc = DateTimeOffset.UtcNow;
+        _lastStatusQueryUtc = DateTimeOffset.MinValue;
         _lastMessage = $"Conectada por Windows · {_service.Uuid} · {_write.Uuid}";
     }
 
@@ -201,12 +222,32 @@ public sealed class D30BluetoothService : IDisposable
                s.StartsWith("0000af02", StringComparison.OrdinalIgnoreCase);
     }
 
+    private async Task EnsureConnectedForIoAsync()
+    {
+        if (IsConnected && _write is not null)
+            return;
+
+        if (_write is not null && _session?.MaintainConnection == true)
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                await Task.Delay(250).ConfigureAwait(false);
+                if (IsConnected)
+                    return;
+            }
+        }
+
+        await ConnectAsync(false).ConfigureAwait(false);
+    }
+
     public async Task SendAsync(byte[] bytes)
     {
-        if (bytes.Length == 0) return;
-        if (!IsConnected || _write is null)
-            await ConnectAsync(false).ConfigureAwait(false);
-        if (_write is null) throw new InvalidOperationException("La D30 no está conectada.");
+        if (bytes.Length == 0)
+            return;
+
+        await EnsureConnectedForIoAsync().ConfigureAwait(false);
+        if (_write is null)
+            throw new InvalidOperationException("La D30 no está conectada.");
 
         await _sendGate.WaitAsync().ConfigureAwait(false);
         try
@@ -219,11 +260,14 @@ public sealed class D30BluetoothService : IDisposable
                 : GattWriteOption.WriteWithResponse;
             var result = await _write.WriteValueWithResultAsync(buffer, option).AsTask().ConfigureAwait(false);
             if (result.Status != GattCommunicationStatus.Success)
+            {
+                _lastMessage = $"El enlace BLE respondió {result.Status}. Windows intentará mantener la sesión.";
                 throw new InvalidOperationException($"Windows no pudo enviar datos a la D30 ({result.Status}).");
+            }
         }
         catch
         {
-            _lastMessage = "Se perdió la conexión con la D30.";
+            _lastMessage = "Hubo un corte durante el envío. La sesión BLE quedó preparada para reconectar.";
             throw;
         }
         finally
@@ -234,33 +278,46 @@ public sealed class D30BluetoothService : IDisposable
 
     public async Task<PrinterSnapshot> QueryStatusAsync()
     {
-        if (!IsConnected) await ConnectAsync(false).ConfigureAwait(false);
-        await EnsureNotificationsAsync().ConfigureAwait(false);
-        await Task.Delay(120).ConfigureAwait(false);
+        await EnsureConnectedForIoAsync().ConfigureAwait(false);
 
+        var now = DateTimeOffset.UtcNow;
+        if (_connectedAtUtc != DateTimeOffset.MinValue && now - _connectedAtUtc < TimeSpan.FromSeconds(8))
+            return Snapshot("D30 conectada · estabilizando enlace Bluetooth");
+
+        if (_lastStatusQueryUtc != DateTimeOffset.MinValue && now - _lastStatusQueryUtc < TimeSpan.FromSeconds(45))
+            return Snapshot("Estado reciente");
+
+        if (!await EnsureNotificationsAsync().ConfigureAwait(false))
+            return Snapshot("Conectada · este firmware no expone notificaciones de estado");
+
+        _lastStatusQueryUtc = now;
         await SendAsync(new byte[] { 0x1f, 0x11, 0x08 }).ConfigureAwait(false);
-        await Task.Delay(180).ConfigureAwait(false);
+        await Task.Delay(220).ConfigureAwait(false);
         await SendAsync(new byte[] { 0x1f, 0x11, 0x11 }).ConfigureAwait(false);
-        await Task.Delay(150).ConfigureAwait(false);
-        await SendAsync(new byte[] { 0x1f, 0x11, 0x12 }).ConfigureAwait(false);
-        await Task.Delay(100).ConfigureAwait(false);
+        await Task.Delay(180).ConfigureAwait(false);
         return Snapshot("Estado actualizado");
     }
 
-    private async Task EnsureNotificationsAsync()
+    private async Task<bool> EnsureNotificationsAsync()
     {
-        if (_notificationsEnabled) return;
-        if (_notify is null) throw new InvalidOperationException("Este firmware no expone el canal de estado/batería.");
+        if (_notificationsEnabled)
+            return true;
+        if (_notify is null)
+            return false;
+
         _notify.ValueChanged -= Notify_ValueChanged;
         _notify.ValueChanged += Notify_ValueChanged;
-
         var mode = _notify.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify)
             ? GattClientCharacteristicConfigurationDescriptorValue.Notify
             : GattClientCharacteristicConfigurationDescriptorValue.Indicate;
         var status = await _notify.WriteClientCharacteristicConfigurationDescriptorAsync(mode).AsTask().ConfigureAwait(false);
         if (status != GattCommunicationStatus.Success)
-            throw new InvalidOperationException($"No pude activar el canal de batería ({status}).");
+        {
+            _notify.ValueChanged -= Notify_ValueChanged;
+            return false;
+        }
         _notificationsEnabled = true;
+        return true;
     }
 
     private void Notify_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
@@ -292,7 +349,7 @@ public sealed class D30BluetoothService : IDisposable
         catch { }
     }
 
-    public PrinterSnapshot GetSnapshot() => Snapshot(_lastMessage ?? (IsConnected ? "Conectada" : "Desconectada"));
+    public PrinterSnapshot GetSnapshot() => Snapshot(_lastMessage ?? (IsConnected ? "D30 conectada" : "D30 desconectada"));
 
     private PrinterSnapshot Snapshot(string? message, bool ok = true) => new()
     {
@@ -318,20 +375,28 @@ public sealed class D30BluetoothService : IDisposable
             _settings.DeviceName = null;
             _settings.Save();
         }
-        _lastMessage = "Desconectada";
+        _lastMessage = "D30 desconectada";
     }
 
     private void Device_ConnectionStatusChanged(BluetoothLEDevice sender, object args)
     {
-        if (sender.ConnectionStatus == BluetoothConnectionStatus.Disconnected)
+        if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected)
         {
-            _write = null;
-            _notify = null;
-            _service?.Dispose();
-            _service = null;
-            _notificationsEnabled = false;
-            _lastMessage = "D30 en reposo o desconectada; la app intentará reconectar.";
+            _lastMessage = "D30 conectada";
+            return;
         }
+
+        _lastMessage = _session?.MaintainConnection == true
+            ? "D30 perdió señal por un momento · reconectando automáticamente…"
+            : "D30 desconectada";
+    }
+
+    private void Session_SessionStatusChanged(GattSession sender, GattSessionStatusChangedEventArgs args)
+    {
+        if (args.Status == GattSessionStatus.Active)
+            _lastMessage = "D30 conectada · sesión BLE estable";
+        else if (sender.MaintainConnection)
+            _lastMessage = "Sesión BLE en espera · Windows intentará reconectar la D30";
     }
 
     private void CleanupDevice()
@@ -339,16 +404,26 @@ public sealed class D30BluetoothService : IDisposable
         try
         {
             if (_notify is not null) _notify.ValueChanged -= Notify_ValueChanged;
+            if (_session is not null)
+            {
+                _session.SessionStatusChanged -= Session_SessionStatusChanged;
+                try { _session.MaintainConnection = false; } catch { }
+                _session.Dispose();
+            }
             _service?.Dispose();
             if (_device is not null) _device.ConnectionStatusChanged -= Device_ConnectionStatusChanged;
             _device?.Dispose();
         }
         catch { }
+
         _device = null;
         _service = null;
+        _session = null;
         _write = null;
         _notify = null;
         _notificationsEnabled = false;
+        _connectedAtUtc = DateTimeOffset.MinValue;
+        _lastStatusQueryUtc = DateTimeOffset.MinValue;
     }
 
     public void Dispose()
