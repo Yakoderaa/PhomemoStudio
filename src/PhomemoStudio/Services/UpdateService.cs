@@ -10,6 +10,7 @@ using System.Windows;
 namespace PhomemoStudio.Services;
 
 public sealed record PreparedUpdate(Version Version, string InstallerPath, string? Notes);
+public sealed record UpdateProgress(string Stage, string Message, double? Percent = null);
 
 public sealed class UpdateService : IDisposable
 {
@@ -24,7 +25,7 @@ public sealed class UpdateService : IDisposable
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PhomemoStudio", CurrentVersion.ToString()));
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _http.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
-        _http.Timeout = TimeSpan.FromSeconds(25);
+        _http.Timeout = TimeSpan.FromMinutes(5);
     }
 
     public static Version CurrentVersion
@@ -36,17 +37,23 @@ public sealed class UpdateService : IDisposable
         }
     }
 
-    public async Task<PreparedUpdate?> CheckAndPrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<PreparedUpdate?> CheckAndPrepareAsync(
+        IProgress<UpdateProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         await _checkGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            progress?.Report(new UpdateProgress("checking", "Buscando la última versión…", 0));
+
             var release = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
             if (release is null || release.Value.Version <= CurrentVersion)
+            {
+                progress?.Report(new UpdateProgress("current", $"Versión {CurrentVersion} · al día", 100));
                 return null;
+            }
 
-            if (Prepared is not null && Prepared.Version == release.Value.Version && File.Exists(Prepared.InstallerPath))
-                return Prepared;
+            progress?.Report(new UpdateProgress("found", $"Nueva versión {release.Value.Version} encontrada", 0));
 
             var expectedHash = await GetExpectedHashAsync(release.Value.HashUrl, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(expectedHash))
@@ -58,6 +65,15 @@ public sealed class UpdateService : IDisposable
             Directory.CreateDirectory(updateDir);
 
             var installerPath = Path.Combine(updateDir, "PhomemoStudioSetup.exe");
+            if (Prepared is not null &&
+                Prepared.Version == release.Value.Version &&
+                File.Exists(Prepared.InstallerPath) &&
+                HashMatches(Prepared.InstallerPath, expectedHash))
+            {
+                progress?.Report(new UpdateProgress("ready", $"Phomemo Studio {release.Value.Version} ya está descargado y verificado", 100));
+                return Prepared;
+            }
+
             if (!File.Exists(installerPath) || !HashMatches(installerPath, expectedHash))
             {
                 var partPath = installerPath + ".part";
@@ -71,11 +87,35 @@ public sealed class UpdateService : IDisposable
                     cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
+                var totalBytes = response.Content.Headers.ContentLength;
+                var buffer = new byte[128 * 1024];
+                long downloadedBytes = 0;
+
+                progress?.Report(new UpdateProgress("downloading", "Descargando actualización…", 0));
+
                 await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-                await using (var output = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                await using (var output = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true))
                 {
-                    await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                    while (true)
+                    {
+                        var read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+                        if (read == 0) break;
+
+                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        downloadedBytes += read;
+
+                        double? percent = totalBytes is > 0
+                            ? Math.Min(100, downloadedBytes * 100d / totalBytes.Value)
+                            : null;
+
+                        var message = percent.HasValue
+                            ? $"Descargando actualización… {percent.Value:0}%"
+                            : $"Descargando actualización… {FormatBytes(downloadedBytes)}";
+                        progress?.Report(new UpdateProgress("downloading", message, percent));
+                    }
                 }
+
+                progress?.Report(new UpdateProgress("verifying", "Descarga completa · verificando SHA-256…", 100));
 
                 if (!HashMatches(partPath, expectedHash))
                 {
@@ -85,8 +125,13 @@ public sealed class UpdateService : IDisposable
 
                 File.Move(partPath, installerPath, true);
             }
+            else
+            {
+                progress?.Report(new UpdateProgress("verifying", "Verificando la actualización descargada…", 100));
+            }
 
             Prepared = new PreparedUpdate(release.Value.Version, installerPath, release.Value.Notes);
+            progress?.Report(new UpdateProgress("ready", $"Phomemo Studio {release.Value.Version} listo para instalar", 100));
             return Prepared;
         }
         finally
@@ -104,9 +149,12 @@ public sealed class UpdateService : IDisposable
         Process.Start(new ProcessStartInfo
         {
             FileName = prepared.InstallerPath,
-            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+            // /SILENT mantiene visible la ventana de progreso de Inno Setup.
+            // El instalador vuelve a abrir Phomemo Studio al terminar.
+            Arguments = "/SILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
             UseShellExecute = true
         });
+
         Application.Current.Shutdown();
     }
 
@@ -139,7 +187,7 @@ public sealed class UpdateService : IDisposable
 
     private async Task<(Version Version, string InstallerUrl, string? HashUrl, string? Notes)?> GetLatestReleaseAsync(CancellationToken cancellationToken)
     {
-        var cacheBust = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var cacheBust = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{LatestReleaseApi}?t={cacheBust}");
         request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -192,6 +240,19 @@ public sealed class UpdateService : IDisposable
         {
             return false;
         }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+        return $"{value:0.#} {units[unit]}";
     }
 
     public void Dispose()
