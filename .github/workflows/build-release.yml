@@ -19,8 +19,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src\PhomemoStudio | Out-Null
-          Expand-Archive -Path native_src_v3.zip -DestinationPath src\PhomemoStudio -Force
-          Expand-Archive -Path web_v3.zip -DestinationPath src\PhomemoStudio -Force
+          tar.exe -xf native_src_v3.zip -C src\PhomemoStudio
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo extraer native_src_v3.zip" }
+          tar.exe -xf web_v3.zip -C src\PhomemoStudio
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo extraer web_v3.zip" }
+          Get-ChildItem src\PhomemoStudio -Recurse | Select-Object -First 30 FullName
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
