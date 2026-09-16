@@ -20,21 +20,36 @@
             BorderThickness="0,0,0,1"
             Padding="10,7">
       <DockPanel LastChildFill="True">
-        <Button x:Name="SearchUpdateButton"
-                DockPanel.Dock="Right"
-                Padding="12,6"
-                MinWidth="155"
-                Background="#6C4DFF"
-                Foreground="White"
-                BorderThickness="0"
-                FontWeight="SemiBold"
-                Cursor="Hand"
-                Click="SearchUpdates_Click">
-          Buscar actualizaciones
-        </Button>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="SearchUpdateButton"
+                  Padding="12,6"
+                  MinWidth="155"
+                  Background="#6C4DFF"
+                  Foreground="White"
+                  BorderThickness="0"
+                  FontWeight="SemiBold"
+                  Cursor="Hand"
+                  Click="SearchUpdates_Click">
+            Buscar actualizaciones
+          </Button>
+          <Button x:Name="CloseAppButton"
+                  Margin="8,0,0,0"
+                  Padding="12,6"
+                  MinWidth="82"
+                  Background="#202B42"
+                  Foreground="White"
+                  BorderBrush="#35445F"
+                  BorderThickness="1"
+                  FontWeight="SemiBold"
+                  Cursor="Hand"
+                  Click="CloseApp_Click">
+            Cerrar
+          </Button>
+        </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Ellipse Width="8" Height="8" Fill="#52D68A" Margin="0,0,8,0" />
-          <TextBlock Foreground="#D8E2F3"
+          <TextBlock x:Name="UpdateStatusText"
+                     Foreground="#D8E2F3"
                      FontSize="12"
                      VerticalAlignment="Center"
                      Text="Actualizaciones automáticas activas" />
