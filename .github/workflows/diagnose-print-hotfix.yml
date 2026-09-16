@@ -23,9 +23,7 @@ jobs:
           try { $gzip.CopyTo($output) } finally { $output.Dispose(); $gzip.Dispose(); $input.Dispose() }
           Write-Host "=== ensureConnected matches ==="
           Select-String -Path $outputPath -Pattern "ensureConnected" -Context 8,12 | ForEach-Object { $_.ToString() }
-          Write-Host "=== D30Printer class ==="
-          Select-String -Path $outputPath -Pattern "class D30Printer" -Context 0,160 | ForEach-Object { $_.ToString() }
-          Write-Host "=== printCurrentBtn ==="
-          Select-String -Path $outputPath -Pattern "printCurrentBtn" -Context 20,40 | ForEach-Object { $_.ToString() }
-          Write-Host "=== printQueueBtn ==="
-          Select-String -Path $outputPath -Pattern "printQueueBtn" -Context 20,50 | ForEach-Object { $_.ToString() }
+          Write-Host "=== native desktop pieces ==="
+          Select-String -Path $outputPath -Pattern "NativeD30|isNativeDesktop|nativeBridge|printer =|printer=new|new Native|new D30Printer" -Context 10,80 | ForEach-Object { $_.ToString() }
+          Write-Host "=== tail ==="
+          Get-Content $outputPath | Select-Object -Last 140
