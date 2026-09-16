@@ -33,44 +33,38 @@ jobs:
             $input.Dispose()
           }
 
-          # V3.1.2 hotfix: the V3.0.1 web bundle still calls ensureConnected()
-          # from printing/calibration/status paths, but the helper was accidentally
-          # removed when the desktop Bluetooth bridge was introduced.
           $app = Get-Content $outputPath -Raw
           if ($app -notmatch 'async function ensureConnected\s*\(') {
             $anchor = "  function setBtDiagnostic(msg)"
             if (-not $app.Contains($anchor)) { throw "No se encontró el punto de inserción para ensureConnected" }
-            $helper = @'
-  async function ensureConnected(){
-    if(!printer)throw new Error('El controlador de la D30 no está listo.');
-    if(printer.connected)return true;
-    setBtDiagnostic('Conectando la D30 antes de continuar…');
-    try{
-      await printer.connect(false);
-      updatePrinterUI();
-      if(!printer.connected)throw new Error('No se pudo establecer la conexión con la D30.');
-      setBtDiagnostic(`D30 lista · ${printer.device?.name||'impresora conectada'}`);
-      return true;
-    }catch(e){
-      updatePrinterUI();
-      setBtDiagnostic(`No se pudo conectar antes de imprimir: ${e?.message||e}`);
-      throw e;
-    }
-  }
-
-'@
+            $helperLines = @(
+              '  async function ensureConnected(){',
+              '    if(!printer)throw new Error(''El controlador de la D30 no está listo.'');',
+              '    if(printer.connected)return true;',
+              '    setBtDiagnostic(''Conectando la D30 antes de continuar…'');',
+              '    try{',
+              '      await printer.connect(false);',
+              '      updatePrinterUI();',
+              '      if(!printer.connected)throw new Error(''No se pudo establecer la conexión con la D30.'');',
+              '      setBtDiagnostic(`D30 lista · ${printer.device?.name||''impresora conectada''}`);',
+              '      return true;',
+              '    }catch(e){',
+              '      updatePrinterUI();',
+              '      setBtDiagnostic(`No se pudo conectar antes de imprimir: ${e?.message||e}`);',
+              '      throw e;',
+              '    }',
+              '  }',
+              ''
+            )
+            $helper = ($helperLines -join [Environment]::NewLine) + [Environment]::NewLine
             $app = $app.Replace($anchor, $helper + $anchor)
           }
 
-          # Avoid querying status immediately after GATT opens. Some D30 firmware
-          # drops the session if status packets are sent during the first seconds.
           $oldStatus = "try{await printer.queryStatus();}catch(e){console.warn('status after connect',e);}"
           $newStatus = "setTimeout(()=>printer.queryStatus().catch(e=>console.warn('status after connect',e)),6000);"
           $app = $app.Replace($oldStatus, $newStatus)
           Set-Content -Path $outputPath -Value $app -Encoding utf8 -NoNewline
 
-          # Load the small desktop-only shell after the legacy editor bundle. It
-          # owns the working Buscar actualizaciones and Cerrar app actions.
           $indexPath = "src\PhomemoStudio\web\index.html"
           $index = Get-Content $indexPath -Raw
           if ($index -notmatch 'desktop-shell\.js') {
