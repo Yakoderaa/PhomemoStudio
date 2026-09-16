@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     private readonly UpdateService _updates = new();
     private readonly DispatcherTimer _updateTimer;
     private PreparedUpdate? _preparedUpdate;
+    private bool _isCheckingUpdates;
+    private bool _updateInstallStarted;
 
     public MainWindow()
     {
@@ -73,25 +75,71 @@ public partial class MainWindow : Window
     private async Task CheckAfterStartupAsync()
     {
         await Task.Delay(3500);
-        await CheckForUpdatesAsync();
+        await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: false);
     }
 
-    private async Task CheckForUpdatesAsync()
+    private async Task CheckForUpdatesAsync(bool installAutomatically = false, bool notifyIfCurrent = false)
     {
+        if (_isCheckingUpdates || _updateInstallStarted)
+        {
+            if (notifyIfCurrent && _isCheckingUpdates)
+                MessageBox.Show(this, "Ya estoy buscando actualizaciones.", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _isCheckingUpdates = true;
+        SearchUpdateButton.IsEnabled = false;
+        SearchUpdateButton.Content = "Buscando…";
+
         try
         {
             var prepared = await _updates.CheckAndPrepareAsync();
-            if (prepared is null) return;
+            if (prepared is null)
+            {
+                if (notifyIfCurrent)
+                    MessageBox.Show(this, $"Ya tenés la última versión ({UpdateService.CurrentVersion}).", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             _preparedUpdate = prepared;
             UpdateTitle.Text = $"Phomemo Studio {prepared.Version} está listo";
-            UpdateText.Text = "La actualización se descargó automáticamente y pasó la verificación SHA-256. Podés seguir trabajando o instalarla ahora.";
+            UpdateText.Text = "La actualización se descargó automáticamente y pasó la verificación SHA-256.";
             UpdateBanner.Visibility = Visibility.Visible;
+
+            if (installAutomatically)
+            {
+                _updateInstallStarted = true;
+                UpdateText.Text = "Actualización verificada. Phomemo Studio se reiniciará para instalarla automáticamente.";
+                InstallUpdateButton.IsEnabled = false;
+                InstallUpdateButton.Content = "Actualizando…";
+                SearchUpdateButton.Content = "Actualizando…";
+                await Task.Delay(300);
+                _updates.InstallPreparedUpdate();
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // Las comprobaciones de actualización son silenciosas si no hay Internet.
+            if (notifyIfCurrent)
+            {
+                MessageBox.Show(this,
+                    "No pude buscar o instalar actualizaciones.\n\n" + ex.Message,
+                    "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
+        finally
+        {
+            _isCheckingUpdates = false;
+            if (!_updateInstallStarted)
+            {
+                SearchUpdateButton.IsEnabled = true;
+                SearchUpdateButton.Content = "Buscar actualizaciones";
+            }
+        }
+    }
+
+    private async void SearchUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
     }
 
     private void InstallUpdate_Click(object sender, RoutedEventArgs e)
@@ -104,14 +152,20 @@ public partial class MainWindow : Window
                 return;
             }
 
+            _updateInstallStarted = true;
             InstallUpdateButton.IsEnabled = false;
             InstallUpdateButton.Content = "Actualizando…";
+            SearchUpdateButton.IsEnabled = false;
+            SearchUpdateButton.Content = "Actualizando…";
             _updates.InstallPreparedUpdate();
         }
         catch (Exception ex)
         {
+            _updateInstallStarted = false;
             InstallUpdateButton.IsEnabled = true;
             InstallUpdateButton.Content = "Actualizar y reiniciar";
+            SearchUpdateButton.IsEnabled = true;
+            SearchUpdateButton.Content = "Buscar actualizaciones";
             MessageBox.Show(this, "No pude iniciar la actualización.\n\n" + ex.Message, "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

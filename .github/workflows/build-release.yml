@@ -88,6 +88,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Interfaz renovada inspirada en editores visuales tipo Canva y mejoras de estabilidad Bluetooth D30 con sesión GATT persistente."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Actualización automática al iniciar: descarga, verifica SHA-256, instala y reinicia sin intervención. Agrega el botón Buscar actualizaciones."
           }
           gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
