@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -30,8 +31,8 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _updateTimer.Stop();
-            _updates.Dispose();
-            _bluetooth.Dispose();
+            try { _updates.Dispose(); } catch { }
+            try { _bluetooth.Dispose(); } catch { }
         };
     }
 
@@ -57,8 +58,10 @@ public partial class MainWindow : Window
 
             _bridge = new NativeBridge(_bluetooth);
             Web.CoreWebView2.AddHostObjectToScript("nativeBridge", _bridge);
+            Web.CoreWebView2.WebMessageReceived += WebMessageReceived;
             Web.Source = new Uri("https://app.phomemostudio.local/index.html");
 
+            UpdateStatusText.Text = $"Phomemo Studio {UpdateService.CurrentVersion} · actualizaciones automáticas activas";
             _updateTimer.Start();
             _ = CheckAfterStartupAsync();
         }
@@ -80,9 +83,12 @@ public partial class MainWindow : Window
 
     private async Task CheckForUpdatesAsync(bool installAutomatically = false, bool notifyIfCurrent = false)
     {
-        if (_isCheckingUpdates || _updateInstallStarted)
+        if (_updateInstallStarted)
+            return;
+
+        if (_isCheckingUpdates)
         {
-            if (notifyIfCurrent && _isCheckingUpdates)
+            if (notifyIfCurrent)
                 MessageBox.Show(this, "Ya estoy buscando actualizaciones.", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -90,12 +96,14 @@ public partial class MainWindow : Window
         _isCheckingUpdates = true;
         SearchUpdateButton.IsEnabled = false;
         SearchUpdateButton.Content = "Buscando…";
+        UpdateStatusText.Text = "Buscando actualizaciones…";
 
         try
         {
             var prepared = await _updates.CheckAndPrepareAsync();
             if (prepared is null)
             {
+                UpdateStatusText.Text = $"Versión {UpdateService.CurrentVersion} · al día";
                 if (notifyIfCurrent)
                     MessageBox.Show(this, $"Ya tenés la última versión ({UpdateService.CurrentVersion}).", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -105,24 +113,35 @@ public partial class MainWindow : Window
             UpdateTitle.Text = $"Phomemo Studio {prepared.Version} está listo";
             UpdateText.Text = "La actualización se descargó automáticamente y pasó la verificación SHA-256.";
             UpdateBanner.Visibility = Visibility.Visible;
+            UpdateStatusText.Text = $"Actualización {prepared.Version} verificada";
 
             if (installAutomatically)
             {
                 _updateInstallStarted = true;
                 UpdateText.Text = "Actualización verificada. Phomemo Studio se reiniciará para instalarla automáticamente.";
+                UpdateStatusText.Text = $"Instalando {prepared.Version}…";
                 InstallUpdateButton.IsEnabled = false;
                 InstallUpdateButton.Content = "Actualizando…";
                 SearchUpdateButton.Content = "Actualizando…";
-                await Task.Delay(300);
+                await Task.Delay(500);
                 _updates.InstallPreparedUpdate();
+                return;
+            }
+
+            if (notifyIfCurrent)
+            {
+                MessageBox.Show(this,
+                    $"Encontré Phomemo Studio {prepared.Version}. Ya está descargado y verificado.\n\nTocá “Actualizar y reiniciar” para instalarlo.",
+                    "Actualización encontrada", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
         catch (Exception ex)
         {
+            UpdateStatusText.Text = "No se pudo comprobar actualizaciones";
             if (notifyIfCurrent)
             {
                 MessageBox.Show(this,
-                    "No pude buscar o instalar actualizaciones.\n\n" + ex.Message,
+                    "No pude buscar actualizaciones.\n\n" + ex.GetBaseException().Message,
                     "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
@@ -139,7 +158,7 @@ public partial class MainWindow : Window
 
     private async void SearchUpdates_Click(object sender, RoutedEventArgs e)
     {
-        await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
+        await CheckForUpdatesAsync(installAutomatically: false, notifyIfCurrent: true);
     }
 
     private void InstallUpdate_Click(object sender, RoutedEventArgs e)
@@ -153,6 +172,7 @@ public partial class MainWindow : Window
             }
 
             _updateInstallStarted = true;
+            UpdateStatusText.Text = $"Instalando {_preparedUpdate.Version}…";
             InstallUpdateButton.IsEnabled = false;
             InstallUpdateButton.Content = "Actualizando…";
             SearchUpdateButton.IsEnabled = false;
@@ -166,7 +186,36 @@ public partial class MainWindow : Window
             InstallUpdateButton.Content = "Actualizar y reiniciar";
             SearchUpdateButton.IsEnabled = true;
             SearchUpdateButton.Content = "Buscar actualizaciones";
+            UpdateStatusText.Text = "No se pudo iniciar la actualización";
             MessageBox.Show(this, "No pude iniciar la actualización.\n\n" + ex.Message, "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void CloseApp_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private async void WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+            if (!doc.RootElement.TryGetProperty("type", out var typeElement)) return;
+            var type = typeElement.GetString();
+
+            if (type == "checkUpdates")
+            {
+                await CheckForUpdatesAsync(installAutomatically: false, notifyIfCurrent: true);
+            }
+            else if (type == "closeApp")
+            {
+                Close();
+            }
+        }
+        catch
+        {
+            // Un mensaje web inválido no debe afectar la ventana principal.
         }
     }
 }

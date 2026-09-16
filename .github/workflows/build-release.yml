@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore repaired desktop web app
+      - name: Restore and hotfix desktop web app
         shell: pwsh
         run: |
           $parts = Get-ChildItem "patch\app_v301.gz.b64.part*" | Sort-Object Name
@@ -32,8 +32,49 @@ jobs:
             $gzip.Dispose()
             $input.Dispose()
           }
+
+          $app = Get-Content $outputPath -Raw
+          if ($app -notmatch 'async function ensureConnected\s*\(') {
+            $anchor = "  function setBtDiagnostic(msg)"
+            if (-not $app.Contains($anchor)) { throw "No se encontró el punto de inserción para ensureConnected" }
+            $helperLines = @(
+              '  async function ensureConnected(){',
+              '    if(!printer)throw new Error(''El controlador de la D30 no está listo.'');',
+              '    if(printer.connected)return true;',
+              '    setBtDiagnostic(''Conectando la D30 antes de continuar…'');',
+              '    try{',
+              '      await printer.connect(false);',
+              '      updatePrinterUI();',
+              '      if(!printer.connected)throw new Error(''No se pudo establecer la conexión con la D30.'');',
+              '      setBtDiagnostic(`D30 lista · ${printer.device?.name||''impresora conectada''}`);',
+              '      return true;',
+              '    }catch(e){',
+              '      updatePrinterUI();',
+              '      setBtDiagnostic(`No se pudo conectar antes de imprimir: ${e?.message||e}`);',
+              '      throw e;',
+              '    }',
+              '  }',
+              ''
+            )
+            $helper = ($helperLines -join [Environment]::NewLine) + [Environment]::NewLine
+            $app = $app.Replace($anchor, $helper + $anchor)
+          }
+
+          $oldStatus = "try{await printer.queryStatus();}catch(e){console.warn('status after connect',e);}"
+          $newStatus = "setTimeout(()=>printer.queryStatus().catch(e=>console.warn('status after connect',e)),6000);"
+          $app = $app.Replace($oldStatus, $newStatus)
+          Set-Content -Path $outputPath -Value $app -Encoding utf8 -NoNewline
+
+          $indexPath = "src\PhomemoStudio\web\index.html"
+          $index = Get-Content $indexPath -Raw
+          if ($index -notmatch 'desktop-shell\.js') {
+            $index = $index.Replace('<script src="app.js"></script>', '<script src="app.js"></script>' + [Environment]::NewLine + '  <script src="desktop-shell.js"></script>')
+            Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
+          }
+
           node --check $outputPath
-          Write-Host "Restored $outputPath ($((Get-Item $outputPath).Length) bytes)"
+          node --check "src\PhomemoStudio\web\desktop-shell.js"
+          Write-Host "Restored + hotfixed $outputPath ($((Get-Item $outputPath).Length) bytes)"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -88,6 +129,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Actualización automática al iniciar: descarga, verifica SHA-256, instala y reinicia sin intervención. Agrega el botón Buscar actualizaciones."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Hotfix de impresión: restaura ensureConnected, mejora la reconexión antes de imprimir, retrasa la consulta de estado Bluetooth, corrige Buscar actualizaciones y agrega controles confiables para cerrar la app."
           }
           gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
