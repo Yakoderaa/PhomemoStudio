@@ -97,12 +97,16 @@ public partial class MainWindow : Window
         SearchUpdateButton.IsEnabled = false;
         SearchUpdateButton.Content = "Buscando…";
         UpdateStatusText.Text = "Buscando actualizaciones…";
+        InstallUpdateButton.Visibility = Visibility.Collapsed;
+
+        var progress = new Progress<UpdateProgress>(ApplyUpdateProgress);
 
         try
         {
-            var prepared = await _updates.CheckAndPrepareAsync();
+            var prepared = await _updates.CheckAndPrepareAsync(progress);
             if (prepared is null)
             {
+                UpdateBanner.Visibility = Visibility.Collapsed;
                 UpdateStatusText.Text = $"Versión {UpdateService.CurrentVersion} · al día";
                 if (notifyIfCurrent)
                     MessageBox.Show(this, $"Ya tenés la última versión ({UpdateService.CurrentVersion}).", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -110,24 +114,23 @@ public partial class MainWindow : Window
             }
 
             _preparedUpdate = prepared;
-            UpdateTitle.Text = $"Phomemo Studio {prepared.Version} está listo";
-            UpdateText.Text = "La actualización se descargó automáticamente y pasó la verificación SHA-256.";
+            UpdateTitle.Text = $"Phomemo Studio {prepared.Version} listo";
+            UpdateText.Text = "La descarga terminó y el SHA-256 fue verificado.";
+            UpdateProgressBar.Visibility = Visibility.Visible;
+            UpdateProgressBar.IsIndeterminate = false;
+            UpdateProgressBar.Value = 100;
+            UpdateProgressText.Visibility = Visibility.Visible;
+            UpdateProgressText.Text = "100% · descarga verificada";
             UpdateBanner.Visibility = Visibility.Visible;
             UpdateStatusText.Text = $"Actualización {prepared.Version} verificada";
 
             if (installAutomatically)
             {
-                _updateInstallStarted = true;
-                UpdateText.Text = "Actualización verificada. Phomemo Studio se reiniciará para instalarla automáticamente.";
-                UpdateStatusText.Text = $"Instalando {prepared.Version}…";
-                InstallUpdateButton.IsEnabled = false;
-                InstallUpdateButton.Content = "Actualizando…";
-                SearchUpdateButton.Content = "Actualizando…";
-                await Task.Delay(500);
-                _updates.InstallPreparedUpdate();
+                await BeginInstallAsync();
                 return;
             }
 
+            InstallUpdateButton.Visibility = Visibility.Visible;
             if (notifyIfCurrent)
             {
                 MessageBox.Show(this,
@@ -137,11 +140,19 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            UpdateStatusText.Text = "No se pudo comprobar actualizaciones";
+            _updateInstallStarted = false;
+            UpdateProgressBar.IsIndeterminate = false;
+            UpdateProgressBar.Visibility = Visibility.Collapsed;
+            UpdateProgressText.Visibility = Visibility.Collapsed;
+            UpdateStatusText.Text = "No se pudo completar la actualización";
+            UpdateTitle.Text = "Error al actualizar";
+            UpdateText.Text = ex.GetBaseException().Message;
+            UpdateBanner.Visibility = Visibility.Visible;
+
             if (notifyIfCurrent)
             {
                 MessageBox.Show(this,
-                    "No pude buscar actualizaciones.\n\n" + ex.GetBaseException().Message,
+                    "No pude completar la actualización.\n\n" + ex.GetBaseException().Message,
                     "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
@@ -156,36 +167,94 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void SearchUpdates_Click(object sender, RoutedEventArgs e)
+    private void ApplyUpdateProgress(UpdateProgress progress)
     {
-        await CheckForUpdatesAsync(installAutomatically: false, notifyIfCurrent: true);
+        UpdateBanner.Visibility = Visibility.Visible;
+        UpdateText.Text = progress.Message;
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressText.Visibility = Visibility.Visible;
+
+        switch (progress.Stage)
+        {
+            case "checking":
+                UpdateTitle.Text = "Buscando actualización";
+                UpdateStatusText.Text = "Consultando GitHub…";
+                break;
+            case "found":
+                UpdateTitle.Text = "Actualización encontrada";
+                UpdateStatusText.Text = progress.Message;
+                break;
+            case "downloading":
+                UpdateTitle.Text = "Descargando actualización";
+                UpdateStatusText.Text = progress.Message;
+                break;
+            case "verifying":
+                UpdateTitle.Text = "Verificando actualización";
+                UpdateStatusText.Text = progress.Message;
+                break;
+            case "ready":
+                UpdateTitle.Text = "Actualización lista";
+                UpdateStatusText.Text = progress.Message;
+                break;
+        }
+
+        if (progress.Percent.HasValue)
+        {
+            UpdateProgressBar.IsIndeterminate = false;
+            UpdateProgressBar.Value = Math.Clamp(progress.Percent.Value, 0, 100);
+            UpdateProgressText.Text = $"{UpdateProgressBar.Value:0}%";
+        }
+        else
+        {
+            UpdateProgressBar.IsIndeterminate = true;
+            UpdateProgressText.Text = progress.Message;
+        }
     }
 
-    private void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    private async Task BeginInstallAsync()
+    {
+        if (_preparedUpdate is null)
+            throw new InvalidOperationException("Todavía no hay una actualización descargada.");
+
+        _updateInstallStarted = true;
+        SearchUpdateButton.IsEnabled = false;
+        SearchUpdateButton.Content = "Instalando…";
+        InstallUpdateButton.IsEnabled = false;
+        InstallUpdateButton.Visibility = Visibility.Collapsed;
+        UpdateTitle.Text = $"Instalando Phomemo Studio {_preparedUpdate.Version}";
+        UpdateText.Text = "Abriendo el instalador. Vas a ver el progreso de instalación; al terminar, Phomemo Studio se abrirá otra vez automáticamente.";
+        UpdateStatusText.Text = $"Instalando {_preparedUpdate.Version}…";
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.IsIndeterminate = true;
+        UpdateProgressText.Visibility = Visibility.Visible;
+        UpdateProgressText.Text = "Iniciando instalador…";
+
+        // Da tiempo a WPF a pintar el estado antes de entregar el control al instalador.
+        await Task.Delay(700);
+        _updates.InstallPreparedUpdate();
+    }
+
+    private async void SearchUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        // El botón ejecuta el flujo completo: buscar -> descargar -> verificar -> instalar -> reiniciar.
+        await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
+    }
+
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            if (_preparedUpdate is null)
-            {
-                MessageBox.Show(this, "Todavía no hay una actualización descargada.", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            _updateInstallStarted = true;
-            UpdateStatusText.Text = $"Instalando {_preparedUpdate.Version}…";
-            InstallUpdateButton.IsEnabled = false;
-            InstallUpdateButton.Content = "Actualizando…";
-            SearchUpdateButton.IsEnabled = false;
-            SearchUpdateButton.Content = "Actualizando…";
-            _updates.InstallPreparedUpdate();
+            await BeginInstallAsync();
         }
         catch (Exception ex)
         {
             _updateInstallStarted = false;
             InstallUpdateButton.IsEnabled = true;
+            InstallUpdateButton.Visibility = Visibility.Visible;
             InstallUpdateButton.Content = "Actualizar y reiniciar";
             SearchUpdateButton.IsEnabled = true;
             SearchUpdateButton.Content = "Buscar actualizaciones";
+            UpdateProgressBar.IsIndeterminate = false;
             UpdateStatusText.Text = "No se pudo iniciar la actualización";
             MessageBox.Show(this, "No pude iniciar la actualización.\n\n" + ex.Message, "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -206,7 +275,7 @@ public partial class MainWindow : Window
 
             if (type == "checkUpdates")
             {
-                await CheckForUpdatesAsync(installAutomatically: false, notifyIfCurrent: true);
+                await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
             }
             else if (type == "closeApp")
             {

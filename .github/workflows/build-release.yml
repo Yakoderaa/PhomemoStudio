@@ -129,6 +129,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Hotfix de impresión: restaura ensureConnected, mejora la reconexión antes de imprimir, retrasa la consulta de estado Bluetooth, corrige Buscar actualizaciones y agrega controles confiables para cerrar la app."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Actualizador renovado: Buscar actualizaciones ejecuta el flujo completo, muestra progreso de descarga, verifica SHA-256, abre el instalador con progreso visible, cierra Phomemo Studio durante la instalación y vuelve a abrirlo automáticamente al terminar."
           }
           gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber

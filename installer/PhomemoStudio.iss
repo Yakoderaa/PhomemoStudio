@@ -36,4 +36,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: unchecked
 
 [Run]
+; Instalación manual: mantiene la opción normal de abrir la aplicación al finalizar.
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; Actualización iniciada desde la app: al usar /SILENT vuelve a abrir Phomemo Studio automáticamente.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent
