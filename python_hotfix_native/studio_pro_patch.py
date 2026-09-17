@@ -17,15 +17,24 @@ if marker not in s:
 spec = Path("python_app/PhomemoStudio.spec")
 if spec.exists():
     x = spec.read_text(encoding="utf-8")
-    if re.search(r"icon\s*=", x):
-        x = re.sub(r"icon\s*=\s*[^,\n\)]+", "icon='assets/sr-gato.ico'", x, count=1)
-    else:
-        # Add icon to the EXE(...) call. Works with the compact spec used by the project.
-        pos = x.find("EXE(")
-        if pos >= 0:
-            close = x.find("\n)", pos)
-            if close >= 0:
-                x = x[:close] + ",\n    icon='assets/sr-gato.ico'" + x[close:]
+    # The project's compact spec keeps EXE(...) on one line. Inject directly before
+    # its final parenthesis instead of trying to add another closing delimiter.
+    lines = x.splitlines()
+    for i, line in enumerate(lines):
+        if "=EXE(" in line.replace(" ", "") or "EXE(" in line:
+            if "icon=" in line:
+                line = re.sub(r"icon\s*=\s*['\"][^'\"]*['\"]", "icon='assets/sr-gato.ico'", line)
+            else:
+                end = line.rfind(")")
+                if end >= 0:
+                    line = line[:end] + ",icon='assets/sr-gato.ico'" + line[end:]
+            # Repair the exact malformed form produced by the first 5.0.0 attempt.
+            line = line.replace("icon='assets/sr-gato.ico'))", "icon='assets/sr-gato.ico')")
+            lines[i] = line
+            break
+    x = "\n".join(lines) + ("\n" if x.endswith("\n") else "")
+    # Fail during the patch step, not 10 minutes later in PyInstaller, if syntax is bad.
+    compile(x, str(spec), "exec")
     spec.write_text(x, encoding="utf-8")
 
 print("Applied Studio Pro: modern UI, total font discovery, shape library, working updater and taskbar icon identity")
