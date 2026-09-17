@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.3.1 app enhancements
+      - name: Apply 5.3.2 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -54,9 +54,9 @@ jobs:
           python python_hotfix_native\v53_fonts_library_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.3.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.3.2"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.3.1: robust detached updater, install wait and automatic relaunch"
+          Write-Host "Applied 5.3.2: clean font selector without clear/cross icon"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -95,7 +95,7 @@ jobs:
           python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
           python -c "from PySide6.QtWidgets import QApplication; a=QApplication([]); from phomemo_studio.v53_fonts_library import massive_catalog_size; n=massive_catalog_size(); assert n>20000, n; print('Massive open object catalog',n)"
           python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; u=Path('python_app/phomemo_studio/studio_pro.py').read_text(encoding='utf-8'); assert 'PhomemoStudio-update.ps1' in u and 'installer exit code' in u and 'relaunching app' in u; iss=Path('python_app/installer.iss').read_text(encoding='utf-8'); assert 'skipifnotsilent' not in iss; print('Updater handoff/install/relaunch smoke OK')"
-          python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.1 UI + fonts + library + roll accounting smoke OK')"
+          python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None and c.lineEdit() is not None and not c.lineEdit().isClearButtonEnabled() for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.2 UI + clean font selector + library + roll accounting smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -148,7 +148,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-UpdaterFix
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-FontCleanup
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -165,6 +165,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.3.1: corrige el flujo de actualización automática. Después de descargar y verificar la nueva versión, un actualizador independiente espera a que Phomemo Studio cierre realmente, ejecuta el instalador silencioso, espera a que termine, valida que el nuevo EXE exista y vuelve a abrir la aplicación automáticamente. Se guarda un log en la carpeta temporal de Windows si la instalación falla. Se conservan fuentes dinámicas, biblioteca ampliada, Bluetooth y calibración."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.3.2: limpia el selector de tipografías eliminando la X/cruz que aparecía a la derecha del nombre de la fuente. Se mantiene la búsqueda escribiendo letra por letra, el autocompletado y la actualización automática de fuentes, además del actualizador robusto, biblioteca ampliada, Bluetooth y calibración."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
