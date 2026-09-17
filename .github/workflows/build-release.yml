@@ -32,6 +32,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
+      - name: Apply Python 4.0.1 BLE hotfixes
+        shell: pwsh
+        run: |
+          Copy-Item python_hotfix\printer.py python_app\phomemo_studio\printer.py -Force
+          Copy-Item python_hotfix\test_printer.py python_app\tests\test_printer.py -Force
+          $initPath = "python_app\phomemo_studio\__init__.py"
+          $init = Get-Content $initPath -Raw
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.0.1"')
+          Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
+          Write-Host "Applied robust active BLE scan + GATT probe fallback for D30"
+
       - name: Restore transparent Sr Gato assets
         shell: pwsh
         run: |
@@ -107,6 +118,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.0: migración completa del runtime a Python/PySide6. Editor, plantillas, grupos, cola, control de rollo, Bluetooth D30, impresión raster, calibración, actualización automática y ventana nativa de Windows ya no dependen de WebView2 ni del frontend JavaScript/C#. Incluye pruebas automatizadas de configuración, persistencia, raster/protocolo y smoke test de interfaz."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.1: corrige la detección Bluetooth de la Phomemo D30 en Windows. El escaneo ahora es activo y conserva respuestas de anuncio tardías; si la D30 aparece sin nombre o sin UUID, la app verifica de forma segura el perfil GATT de los dispositivos cercanos antes de descartarla. También agrega diagnósticos de escaneo más útiles."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
