@@ -1,6 +1,9 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using PhomemoStudio.Services;
@@ -9,6 +12,15 @@ namespace PhomemoStudio;
 
 public partial class MainWindow : Window
 {
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int HtCaption = 0x0002;
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
     private readonly D30BluetoothService _bluetooth = new();
     private NativeBridge? _bridge;
     private readonly UpdateService _updates = new();
@@ -27,6 +39,7 @@ public partial class MainWindow : Window
         };
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
 
+        StateChanged += (_, _) => RefreshWindowStateButton();
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
@@ -40,8 +53,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PhomemoStudio", "WebView2");
+            VersionText.Text = $"D30 Desktop · {UpdateService.CurrentVersion}";
+            RefreshWindowStateButton();
+
+            var dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PhomemoStudio", "WebView2");
             Directory.CreateDirectory(dataDir);
+
             var env = await CoreWebView2Environment.CreateAsync(userDataFolder: dataDir);
             await Web.EnsureCoreWebView2Async(env);
 
@@ -61,7 +80,7 @@ public partial class MainWindow : Window
             Web.CoreWebView2.WebMessageReceived += WebMessageReceived;
             Web.Source = new Uri("https://app.phomemostudio.local/index.html");
 
-            UpdateStatusText.Text = $"Phomemo Studio {UpdateService.CurrentVersion} · actualizaciones automáticas activas";
+            UpdateStatusText.Text = $"Versión {UpdateService.CurrentVersion} · actualizaciones automáticas";
             _updateTimer.Start();
             _ = CheckAfterStartupAsync();
         }
@@ -72,6 +91,56 @@ public partial class MainWindow : Window
                 "\n\nWindows 11 normalmente incluye Microsoft Edge WebView2. Si fue removido, reinstalalo y volvé a abrir la app.",
                 "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Error);
             Close();
+        }
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+            return;
+
+        // Entrega el arrastre al propio administrador de ventanas de Windows.
+        // Así vuelven a funcionar mover, Snap Layouts y arrastrar desde maximizado.
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        ReleaseCapture();
+        SendMessage(hwnd, WmNcLButtonDown, (IntPtr)HtCaption, IntPtr.Zero);
+    }
+
+    private void MinimizeWindow_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.MinimizeWindow(this);
+    }
+
+    private void MaximizeRestoreWindow_Click(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized)
+            SystemCommands.RestoreWindow(this);
+        else
+            SystemCommands.MaximizeWindow(this);
+    }
+
+    private void CloseWindow_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.CloseWindow(this);
+    }
+
+    private void RefreshWindowStateButton()
+    {
+        if (MaximizeRestoreButton is null)
+            return;
+
+        if (WindowState == WindowState.Maximized)
+        {
+            MaximizeRestoreButton.Content = "❐";
+            MaximizeRestoreButton.ToolTip = "Restaurar";
+        }
+        else
+        {
+            MaximizeRestoreButton.Content = "□";
+            MaximizeRestoreButton.ToolTip = "Maximizar";
         }
     }
 
@@ -88,8 +157,8 @@ public partial class MainWindow : Window
 
         if (_isCheckingUpdates)
         {
-            if (notifyIfCurrent)
-                MessageBox.Show(this, "Ya estoy buscando actualizaciones.", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateStatusText.Text = "Ya estoy buscando actualizaciones…";
+            PostUpdateState("checking", "Ya estoy buscando actualizaciones…", null, true);
             return;
         }
 
@@ -97,7 +166,15 @@ public partial class MainWindow : Window
         SearchUpdateButton.IsEnabled = false;
         SearchUpdateButton.Content = "Buscando…";
         UpdateStatusText.Text = "Buscando actualizaciones…";
-        InstallUpdateButton.Visibility = Visibility.Collapsed;
+
+        UpdateBanner.Visibility = Visibility.Visible;
+        UpdateTitle.Text = "Buscando actualización";
+        UpdateText.Text = "Consultando la última versión publicada…";
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.IsIndeterminate = true;
+        UpdateProgressText.Visibility = Visibility.Visible;
+        UpdateProgressText.Text = "Conectando con GitHub…";
+        PostUpdateState("checking", "Buscando la última versión…", null, true);
 
         var progress = new Progress<UpdateProgress>(ApplyUpdateProgress);
 
@@ -106,16 +183,25 @@ public partial class MainWindow : Window
             var prepared = await _updates.CheckAndPrepareAsync(progress);
             if (prepared is null)
             {
-                UpdateBanner.Visibility = Visibility.Collapsed;
+                UpdateTitle.Text = "Phomemo Studio está al día";
+                UpdateText.Text = $"Ya tenés instalada la última versión ({UpdateService.CurrentVersion}).";
+                UpdateProgressBar.IsIndeterminate = false;
+                UpdateProgressBar.Value = 100;
+                UpdateProgressText.Text = "100% · sin actualizaciones pendientes";
                 UpdateStatusText.Text = $"Versión {UpdateService.CurrentVersion} · al día";
-                if (notifyIfCurrent)
-                    MessageBox.Show(this, $"Ya tenés la última versión ({UpdateService.CurrentVersion}).", "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Information);
+                PostUpdateState("current", $"Ya tenés la última versión ({UpdateService.CurrentVersion}).", 100, false);
+
+                if (!notifyIfCurrent)
+                {
+                    await Task.Delay(1800);
+                    UpdateBanner.Visibility = Visibility.Collapsed;
+                }
                 return;
             }
 
             _preparedUpdate = prepared;
             UpdateTitle.Text = $"Phomemo Studio {prepared.Version} listo";
-            UpdateText.Text = "La descarga terminó y el SHA-256 fue verificado.";
+            UpdateText.Text = "Descarga terminada y verificada con SHA-256.";
             UpdateProgressBar.Visibility = Visibility.Visible;
             UpdateProgressBar.IsIndeterminate = false;
             UpdateProgressBar.Value = 100;
@@ -123,31 +209,23 @@ public partial class MainWindow : Window
             UpdateProgressText.Text = "100% · descarga verificada";
             UpdateBanner.Visibility = Visibility.Visible;
             UpdateStatusText.Text = $"Actualización {prepared.Version} verificada";
+            PostUpdateState("ready", $"Phomemo Studio {prepared.Version} listo para instalar", 100, true);
 
             if (installAutomatically)
-            {
                 await BeginInstallAsync();
-                return;
-            }
-
-            InstallUpdateButton.Visibility = Visibility.Visible;
-            if (notifyIfCurrent)
-            {
-                MessageBox.Show(this,
-                    $"Encontré Phomemo Studio {prepared.Version}. Ya está descargado y verificado.\n\nTocá “Actualizar y reiniciar” para instalarlo.",
-                    "Actualización encontrada", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
         }
         catch (Exception ex)
         {
             _updateInstallStarted = false;
             UpdateProgressBar.IsIndeterminate = false;
             UpdateProgressBar.Visibility = Visibility.Collapsed;
-            UpdateProgressText.Visibility = Visibility.Collapsed;
+            UpdateProgressText.Visibility = Visibility.Visible;
+            UpdateProgressText.Text = "Error";
             UpdateStatusText.Text = "No se pudo completar la actualización";
             UpdateTitle.Text = "Error al actualizar";
             UpdateText.Text = ex.GetBaseException().Message;
             UpdateBanner.Visibility = Visibility.Visible;
+            PostUpdateState("error", ex.GetBaseException().Message, null, false);
 
             if (notifyIfCurrent)
             {
@@ -196,6 +274,10 @@ public partial class MainWindow : Window
                 UpdateTitle.Text = "Actualización lista";
                 UpdateStatusText.Text = progress.Message;
                 break;
+            case "current":
+                UpdateTitle.Text = "Phomemo Studio está al día";
+                UpdateStatusText.Text = progress.Message;
+                break;
         }
 
         if (progress.Percent.HasValue)
@@ -209,6 +291,8 @@ public partial class MainWindow : Window
             UpdateProgressBar.IsIndeterminate = true;
             UpdateProgressText.Text = progress.Message;
         }
+
+        PostUpdateState(progress.Stage, progress.Message, progress.Percent, true);
     }
 
     private async Task BeginInstallAsync()
@@ -219,50 +303,51 @@ public partial class MainWindow : Window
         _updateInstallStarted = true;
         SearchUpdateButton.IsEnabled = false;
         SearchUpdateButton.Content = "Instalando…";
-        InstallUpdateButton.IsEnabled = false;
-        InstallUpdateButton.Visibility = Visibility.Collapsed;
         UpdateTitle.Text = $"Instalando Phomemo Studio {_preparedUpdate.Version}";
-        UpdateText.Text = "Abriendo el instalador. Vas a ver el progreso de instalación; al terminar, Phomemo Studio se abrirá otra vez automáticamente.";
+        UpdateText.Text = "El instalador va a tomar el control. Vas a ver su progreso; después la app se cerrará y volverá a abrirse sola.";
         UpdateStatusText.Text = $"Instalando {_preparedUpdate.Version}…";
         UpdateProgressBar.Visibility = Visibility.Visible;
         UpdateProgressBar.IsIndeterminate = true;
         UpdateProgressText.Visibility = Visibility.Visible;
         UpdateProgressText.Text = "Iniciando instalador…";
+        PostUpdateState("installing", $"Instalando {_preparedUpdate.Version}…", null, true);
 
-        // Da tiempo a WPF a pintar el estado antes de entregar el control al instalador.
-        await Task.Delay(700);
+        await Task.Delay(500);
         _updates.InstallPreparedUpdate();
+
+        // Le damos tiempo a Inno Setup a crear su ventana de progreso y luego
+        // cerramos esta instancia. El instalador relanza la app al finalizar.
+        await Task.Delay(900);
+        Application.Current.Shutdown();
     }
 
     private async void SearchUpdates_Click(object sender, RoutedEventArgs e)
     {
-        // El botón ejecuta el flujo completo: buscar -> descargar -> verificar -> instalar -> reiniciar.
+        // Flujo completo: buscar -> descargar -> verificar -> instalar -> cerrar -> reabrir.
         await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
     }
 
-    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    private void PostUpdateState(string stage, string message, double? percent, bool busy)
     {
         try
         {
-            await BeginInstallAsync();
-        }
-        catch (Exception ex)
-        {
-            _updateInstallStarted = false;
-            InstallUpdateButton.IsEnabled = true;
-            InstallUpdateButton.Visibility = Visibility.Visible;
-            InstallUpdateButton.Content = "Actualizar y reiniciar";
-            SearchUpdateButton.IsEnabled = true;
-            SearchUpdateButton.Content = "Buscar actualizaciones";
-            UpdateProgressBar.IsIndeterminate = false;
-            UpdateStatusText.Text = "No se pudo iniciar la actualización";
-            MessageBox.Show(this, "No pude iniciar la actualización.\n\n" + ex.Message, "Phomemo Studio", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
+            if (Web?.CoreWebView2 is null)
+                return;
 
-    private void CloseApp_Click(object sender, RoutedEventArgs e)
-    {
-        Close();
+            var json = JsonSerializer.Serialize(new
+            {
+                type = "updateState",
+                stage,
+                message,
+                percent,
+                busy
+            });
+            Web.CoreWebView2.PostWebMessageAsJson(json);
+        }
+        catch
+        {
+            // El estado visual web es auxiliar; nunca debe romper el actualizador nativo.
+        }
     }
 
     private async void WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -270,16 +355,24 @@ public partial class MainWindow : Window
         try
         {
             using var doc = JsonDocument.Parse(e.WebMessageAsJson);
-            if (!doc.RootElement.TryGetProperty("type", out var typeElement)) return;
-            var type = typeElement.GetString();
+            if (!doc.RootElement.TryGetProperty("type", out var typeElement))
+                return;
 
-            if (type == "checkUpdates")
+            var type = typeElement.GetString();
+            switch (type)
             {
-                await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
-            }
-            else if (type == "closeApp")
-            {
-                Close();
+                case "checkUpdates":
+                    await CheckForUpdatesAsync(installAutomatically: true, notifyIfCurrent: true);
+                    break;
+                case "closeApp":
+                    SystemCommands.CloseWindow(this);
+                    break;
+                case "minimizeApp":
+                    SystemCommands.MinimizeWindow(this);
+                    break;
+                case "maximizeApp":
+                    MaximizeRestoreWindow_Click(this, new RoutedEventArgs());
+                    break;
             }
         }
         catch
