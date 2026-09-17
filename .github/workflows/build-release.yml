@@ -37,31 +37,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply native Windows BLE backend
+      - name: Apply 4.1.2 app hotfixes
         shell: pwsh
         run: |
           Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
           Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
+          python python_hotfix_native\ui_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.2"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-
-          $bridgePath = "native_bridge\PhomemoBleBridge\Program.cs"
-          $bridge = Get-Content $bridgePath -Raw
-          $bridge = $bridge.Replace(
-            'await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().ConfigureAwait(false)',
-            'await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false)'
-          )
-          $bridge = $bridge.Replace(
-            'await _device.GetGattServicesForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false)',
-            'await _device.GetGattServicesForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false)'
-          )
-          $bridge = $bridge.Replace(
-            'await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false)',
-            'await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false)'
-          )
-          Set-Content -Path $bridgePath -Value $bridge -Encoding utf8 -NoNewline
+          Write-Host "Applied 4.1.2: direct native D30 connect stages, calibration and last-label reserve"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -92,8 +78,8 @@ jobs:
         run: |
           python -m compileall -q python_app\phomemo_studio python_app\tests
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
-          python -c "from phomemo_studio.printer import PrinterSnapshot, D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; p.close(); print('Native BLE wrapper smoke OK')"
-          python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); assert w.windowTitle().startswith('Phomemo Studio'); w.close(); print('UI smoke OK')"
+          python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'cancel_pending_connection'); p.close(); print('Native BLE wrapper smoke OK')"
+          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); assert w.usable_labels()==21; w.roll_remaining.setValue(1); assert w.usable_labels()==0; assert any(b.text()=='Calibrar D30 / rollo' for b in w.findChildren(QPushButton)); assert any(b.text()=='Calibrar' for b in w.findChildren(QPushButton)); w.close(); print('UI roll reserve + calibration smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -103,6 +89,7 @@ jobs:
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o native_bridge\publish
           if (-not (Test-Path native_bridge\publish\PhomemoBleBridge.exe)) { throw "No se generó PhomemoBleBridge.exe" }
+          Write-Host "BLE bridge bytes: $((Get-Item native_bridge\publish\PhomemoBleBridge.exe).Length)"
 
       - name: Read version
         id: version
@@ -117,6 +104,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean PhomemoStudio.spec
           if (-not (Test-Path dist\PhomemoStudio.exe)) { throw "PyInstaller no generó PhomemoStudio.exe" }
+          Write-Host "EXE bytes: $((Get-Item dist\PhomemoStudio.exe).Length)"
 
       - name: Stage native BLE bridge
         shell: pwsh
@@ -138,15 +126,12 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid-debug
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
             python_app/dist/PhomemoStudio.exe
             python_app/dist/PhomemoBleBridge.exe
-            python_app/phomemo_studio/ui.py
-            python_app/phomemo_studio/core.py
-            python_app/phomemo_studio/render.py
 
       - name: Create GitHub release
         if: github.ref == 'refs/heads/main'
@@ -157,6 +142,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.1"
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.2: conexión D30 nativa más directa y visible por etapas, sin depender del aviso Agregar un dispositivo de Windows. Restaura la calibración D30 con el protocolo usado por la app anterior. El conteo de rollo reserva siempre la última etiqueta física: por ejemplo, 22 restantes equivalen a 21 utilizables."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
