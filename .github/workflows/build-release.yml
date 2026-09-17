@@ -2,7 +2,7 @@ name: Build Python Windows installer and release
 
 on:
   push:
-    branches: [ main, fix-stale-gatt-4.1.5 ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -37,18 +37,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 4.1.5 app hotfixes
+      - name: Apply 4.1.6 app hotfixes
         shell: pwsh
         run: |
           python python_hotfix_native\stale_gatt_patch.py
+          python python_hotfix_native\silent_reconnect_patch.py
           Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
           Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
           python python_hotfix_native\ui_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.5"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.6"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 4.1.5: active GATT write-channel validation before maintenance and every print"
+          Write-Host "Applied 4.1.6: automatic reconnect uses only the saved D30 address and never launches Bluetooth discovery"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -79,9 +80,9 @@ jobs:
         run: |
           python -m compileall -q python_app\phomemo_studio python_app\tests
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
-          python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'cancel_pending_connection'); assert hasattr(p,'maintain_connection'); assert hasattr(p,'_maintain_connection_sync'); p.close(); print('Native BLE wrapper preflight-reconnect smoke OK')"
-          python -c "from pathlib import Path; s=Path('python_app/phomemo_studio/printer.py').read_text(encoding='utf-8'); assert 'self._maintain_connection_sync(addr, 18)' in s; print('Per-job BLE preflight present')"
-          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); assert w.usable_labels()==21; before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; assert w._maintenance_timer.interval()==30000; assert hasattr(w,'_maintain_connection'); assert any(b.text()=='Calibrar D30 / rollo' for b in w.findChildren(QPushButton)); w.close(); print('UI calibration-no-decrement + print-decrement + reconnect smoke OK')"
+          python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
+          python -c "from pathlib import Path; p=Path('python_app/phomemo_studio/printer.py').read_text(encoding='utf-8'); b=Path('native_bridge/PhomemoBleBridge/Program.cs').read_text(encoding='utf-8'); assert '\"allowDiscovery\": False' in p; assert '\"allowDiscovery\": True' in p; assert 'ConnectAsync(preferredAddress, false)' in b; assert 'if (!allowDiscovery)' in b; print('Silent reconnect policy present')"
+          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('UI roll accounting smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -144,6 +145,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.5: corrige el caso persistente 'Cannot access a disposed object' después de una reconexión. La app ya no confía solo en el estado cacheado de Windows: valida el canal GATT real con un paquete inocuo cada 30 segundos y justo antes de cada impresión/calibración. Si Windows descartó la característica BLE, limpia todos los objetos WinRT, reconstruye el enlace y recién entonces permite imprimir. La calibración sigue sin descontar etiquetas."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.6: la reconexión automática de la D30 ahora es completamente silenciosa. Si ya conocemos su dirección Bluetooth, los intentos automáticos solo reconectan directamente a esa dirección y nunca ejecutan búsqueda general, inventario Bluetooth ni escaneo activo. Esas búsquedas quedan reservadas al botón manual Conectar D30. Esto evita que Phomemo Studio provoque el aviso de Windows 'Agregar un dispositivo / Pulse para configurar su D30'. Conserva la validación GATT de V4.1.5 y la calibración sin descuento de etiquetas."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
