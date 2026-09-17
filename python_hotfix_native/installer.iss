@@ -1,6 +1,6 @@
 #define MyAppName "Phomemo Studio"
 #ifndef MyAppVersion
-#define MyAppVersion "4.1.0"
+#define MyAppVersion "4.2.0"
 #endif
 #define MyAppExeName "PhomemoStudio.exe"
 [Setup]
@@ -26,10 +26,9 @@ SetupIconFile=assets\sr-gato.ico
 Source: "dist\PhomemoStudio.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\PhomemoBleBridge.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: unchecked
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent
