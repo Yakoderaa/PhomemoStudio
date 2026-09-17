@@ -140,22 +140,22 @@ public sealed class UpdateService : IDisposable
         }
     }
 
-    public void InstallPreparedUpdate()
+    public Process InstallPreparedUpdate()
     {
         var prepared = Prepared;
         if (prepared is null || !File.Exists(prepared.InstallerPath))
             throw new InvalidOperationException("No hay una actualización descargada lista para instalar.");
 
-        Process.Start(new ProcessStartInfo
+        var process = Process.Start(new ProcessStartInfo
         {
             FileName = prepared.InstallerPath,
-            // /SILENT mantiene visible la ventana de progreso de Inno Setup.
-            // El instalador vuelve a abrir Phomemo Studio al terminar.
-            Arguments = "/SILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+            // /SILENT deja visible el progreso de Inno Setup.
+            // El instalador cierra la app y la entrada [Run] silenciosa la vuelve a abrir.
+            Arguments = "/SILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /NORESTART",
             UseShellExecute = true
         });
 
-        Application.Current.Shutdown();
+        return process ?? throw new InvalidOperationException("Windows no pudo iniciar el instalador de la actualización.");
     }
 
     // Compatibilidad con instalaciones V3.0/V3.0.1 que todavía llaman este método.
