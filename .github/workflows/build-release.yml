@@ -23,14 +23,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
           New-Item -ItemType Directory -Force -Path $webAssetDir | Out-Null
 
-          $pngB64Path = Join-Path $assetDir "sr-gato.png.b64"
+          $logoParts = Get-ChildItem "$assetDir\sr-gato.b64.part*" | Sort-Object Name
+          if (-not $logoParts) { throw "No se encontraron los fragmentos del logo Sr Gato" }
+          $logoB64 = ($logoParts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          if (($logoB64.Length % 4) -ne 0) { throw "El base64 del logo quedó incompleto: $($logoB64.Length) caracteres" }
+
           $pngPath = Join-Path $assetDir "sr-gato.png"
           $icoPath = Join-Path $assetDir "sr-gato.ico"
-          if (-not (Test-Path $pngB64Path)) { throw "No se encontró el recurso base64 del logo Sr Gato" }
-
-          $rawLogo = Get-Content $pngB64Path -Raw
-          $cleanLogo = [Regex]::Replace($rawLogo, '[^A-Za-z0-9+/=]', '')
-          $pngBytes = [Convert]::FromBase64String($cleanLogo)
+          $pngBytes = [Convert]::FromBase64String($logoB64)
           [IO.File]::WriteAllBytes($pngPath, $pngBytes)
           Copy-Item $pngPath (Join-Path $webAssetDir "sr-gato.png") -Force
 
@@ -43,9 +43,7 @@ jobs:
             $stream = [IO.File]::Create($icoPath)
             try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }
           }
-          finally {
-            $bitmap.Dispose()
-          }
+          finally { $bitmap.Dispose() }
 
           if ((Get-Item $pngPath).Length -lt 1000) { throw "El PNG del logo quedó inválido" }
           if ((Get-Item $icoPath).Length -lt 1000) { throw "El ICO del logo quedó inválido" }
@@ -63,11 +61,7 @@ jobs:
           $outputPath = "src\PhomemoStudio\web\app.js"
           $output = [System.IO.File]::Create($outputPath)
           try { $gzip.CopyTo($output) }
-          finally {
-            $output.Dispose()
-            $gzip.Dispose()
-            $input.Dispose()
-          }
+          finally { $output.Dispose(); $gzip.Dispose(); $input.Dispose() }
 
           $app = Get-Content $outputPath -Raw
           if ($app -notmatch 'async function ensureConnected\s*\(') {
