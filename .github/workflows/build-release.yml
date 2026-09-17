@@ -37,7 +37,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 4.1.6 app hotfixes
+      - name: Apply 5.0.0 app enhancements
         shell: pwsh
         run: |
           python python_hotfix_native\stale_gatt_patch.py
@@ -45,11 +45,12 @@ jobs:
           Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
           Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
           python python_hotfix_native\ui_patch.py
+          python python_hotfix_native\studio_pro_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.6"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.0.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 4.1.6: automatic reconnect uses only the saved D30 address and never launches Bluetooth discovery"
+          Write-Host "Applied 5.0.0: Studio Pro UI, system+Adobe fonts, extended shape library, updater and taskbar icon identity"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -70,7 +71,7 @@ jobs:
       - name: Build transparent Windows icon
         shell: pwsh
         run: |
-          python -c "from PIL import Image; from pathlib import Path; p=Path('python_app/assets/sr-gato.png'); img=Image.open(p).convert('RGBA'); bbox=img.getchannel('A').getbbox(); img=img.crop(bbox) if bbox else img; side=max(img.size); pad=max(8,int(side*.06)); out=Image.new('RGBA',(side+pad*2,side+pad*2),(0,0,0,0)); out.alpha_composite(img,((out.width-img.width)//2,(out.height-img.height)//2)); out.save('python_app/assets/sr-gato.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]); print('alpha',out.getchannel('A').getextrema())"
+          python -c "from PIL import Image; from pathlib import Path; p=Path('python_app/assets/sr-gato.png'); img=Image.open(p).convert('RGBA'); bbox=img.getchannel('A').getbbox(); img=img.crop(bbox) if bbox else img; side=max(img.size); pad=max(8,int(side*.06)); out=Image.new('RGBA',(side+pad*2,side+pad*2),(0,0,0,0)); out.alpha_composite(img,((out.width-img.width)//2,(out.height-img.height)//2)); out.save('python_app/assets/sr-gato.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]); assert out.getchannel('A').getextrema()[0]==0; print('Transparent icon alpha',out.getchannel('A').getextrema())"
 
       - name: Run Python tests
         shell: pwsh
@@ -82,7 +83,9 @@ jobs:
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
           python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from pathlib import Path; p=Path('python_app/phomemo_studio/printer.py').read_text(encoding='utf-8'); b=Path('native_bridge/PhomemoBleBridge/Program.cs').read_text(encoding='utf-8'); assert '\"allowDiscovery\": False' in p; assert '\"allowDiscovery\": True' in p; assert 'ConnectAsync(preferredAddress, false)' in b; assert 'if (!allowDiscovery)' in b; print('Silent reconnect policy present')"
-          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('UI roll accounting smoke OK')"
+          python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
+          python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; print('EXE icon embedded in spec')"
+          python -c "from PySide6.QtWidgets import QApplication,QDockWidget; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; assert w.findChild(QDockWidget,'studioElementsDock') is not None; assert hasattr(w,'_studio_signals'); w.close(); print('Studio Pro UI + roll accounting smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -129,7 +132,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-StudioPro
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -145,6 +148,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.6: la reconexión automática de la D30 ahora es completamente silenciosa. Si ya conocemos su dirección Bluetooth, los intentos automáticos solo reconectan directamente a esa dirección y nunca ejecutan búsqueda general, inventario Bluetooth ni escaneo activo. Esas búsquedas quedan reservadas al botón manual Conectar D30. Esto evita que Phomemo Studio provoque el aviso de Windows 'Agregar un dispositivo / Pulse para configurar su D30'. Conserva la validación GATT de V4.1.5 y la calibración sin descuento de etiquetas."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.0.0 Studio Pro: interfaz visual renovada y moderna; biblioteca ampliada de más de 40 formas geométricas; carga todas las fuentes instaladas en Windows y busca también fuentes activadas por Adobe Creative Cloud; el botón Buscar actualizaciones consulta GitHub Releases, descarga el instalador, verifica SHA-256, inicia la instalación silenciosa y cierra la app automáticamente; se fuerza un AppUserModelID propio y el icono transparente Sr Gato tanto en la ventana como en el EXE para corregir el fondo blanco de la barra de tareas. Mantiene la conexión Bluetooth estable y silenciosa de V4.1.6."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
