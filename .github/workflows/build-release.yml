@@ -2,7 +2,7 @@ name: Build Python Windows installer and release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix-connect-calibration-4.1.2 ]
   workflow_dispatch:
 
 permissions:
@@ -62,7 +62,6 @@ jobs:
             'await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false)'
           )
           Set-Content -Path $bridgePath -Value $bridge -Encoding utf8 -NoNewline
-          Write-Host "Python UI kept; native Windows BLE backend now has hard GATT timeouts"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -104,7 +103,6 @@ jobs:
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o native_bridge\publish
           if (-not (Test-Path native_bridge\publish\PhomemoBleBridge.exe)) { throw "No se generó PhomemoBleBridge.exe" }
-          Write-Host "BLE bridge bytes: $((Get-Item native_bridge\publish\PhomemoBleBridge.exe).Length)"
 
       - name: Read version
         id: version
@@ -119,7 +117,6 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean PhomemoStudio.spec
           if (-not (Test-Path dist\PhomemoStudio.exe)) { throw "PyInstaller no generó PhomemoStudio.exe" }
-          Write-Host "EXE bytes: $((Get-Item dist\PhomemoStudio.exe).Length)"
 
       - name: Stage native BLE bridge
         shell: pwsh
@@ -141,14 +138,18 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid-debug
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
             python_app/dist/PhomemoStudio.exe
             python_app/dist/PhomemoBleBridge.exe
+            python_app/phomemo_studio/ui.py
+            python_app/phomemo_studio/core.py
+            python_app/phomemo_studio/render.py
 
       - name: Create GitHub release
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,6 +157,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.1: corrige el estado Conectando infinito. El wrapper Python y las operaciones Bluetooth/GATT nativas de Windows ahora tienen límites de tiempo estrictos; si Windows bloquea una operación, el helper se reinicia automáticamente y la app vuelve a responder mostrando el error real."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.1"
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
