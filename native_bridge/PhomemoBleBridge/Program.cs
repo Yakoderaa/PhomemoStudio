@@ -3,6 +3,7 @@ using System.Text.Json;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Devices.Enumeration;
 using Windows.Foundation;
 using Windows.Storage.Streams;
 
@@ -10,10 +11,22 @@ namespace PhomemoBleBridge;
 
 internal static class Program
 {
+    private static readonly object OutputGate = new();
+
     public static async Task Main()
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
-        using var bridge = new D30Bridge();
+
+        void Emit(BridgeResponse response)
+        {
+            lock (OutputGate)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(response, JsonOptions.Options));
+                Console.Out.Flush();
+            }
+        }
+
+        using var bridge = new D30Bridge(message => Emit(BridgeResponse.Progress(message)));
         string? line;
         while ((line = Console.ReadLine()) is not null)
         {
@@ -38,8 +51,7 @@ internal static class Program
                 response = BridgeResponse.Fail(ex.GetBaseException().Message);
             }
 
-            Console.WriteLine(JsonSerializer.Serialize(response, JsonOptions.Options));
-            Console.Out.Flush();
+            Emit(response);
             if (response.Quit) break;
         }
     }
@@ -68,9 +80,11 @@ internal sealed class BridgeResponse
     public string Name { get; set; } = "D30";
     public string Address { get; set; } = "";
     public string Message { get; set; } = "";
+    public string Event { get; set; } = "result";
     public bool Quit { get; set; }
 
     public static BridgeResponse Fail(string message) => new() { Ok = false, Message = message };
+    public static BridgeResponse Progress(string message) => new() { Ok = true, Message = message, Event = "progress" };
 }
 
 internal sealed class D30Bridge : IDisposable
@@ -84,12 +98,18 @@ internal sealed class D30Bridge : IDisposable
         new("49535343-fe7d-4ae5-8fa9-9fafd205e455")
     };
 
+    private readonly Action<string> _progress;
     private BluetoothLEDevice? _device;
     private GattDeviceService? _service;
     private GattSession? _session;
     private GattCharacteristic? _write;
     private ulong? _address;
     private string _name = "D30";
+
+    public D30Bridge(Action<string>? progress = null)
+    {
+        _progress = progress ?? (_ => { });
+    }
 
     private bool IsConnected => _write is not null &&
         (_device?.ConnectionStatus == BluetoothConnectionStatus.Connected || _session?.SessionStatus == GattSessionStatus.Active);
@@ -100,10 +120,11 @@ internal sealed class D30Bridge : IDisposable
 
         if (TryParseAddress(preferredAddress, out var saved))
         {
+            _progress("Probando la D30 guardada…");
             try
             {
                 await ConnectToAddressAsync(saved, "D30");
-                return Status("D30 reconectada con Bluetooth nativo de Windows");
+                return Status("D30 reconectada directamente con Windows");
             }
             catch
             {
@@ -111,12 +132,30 @@ internal sealed class D30Bridge : IDisposable
             }
         }
 
-        var candidate = await ScanForD30Async(TimeSpan.FromSeconds(14));
-        if (candidate is null)
-            return BridgeResponse.Fail("El Bluetooth nativo de Windows no encontró una D30 anunciándose. Apagala y prendela, esperá 2 segundos y reintentá.");
+        _progress("Buscando una D30 que Windows ya conozca…");
+        var known = await FindKnownD30Async();
+        if (known is not null)
+        {
+            try
+            {
+                _progress($"Encontré {known.Value.Name} en Windows · abriendo enlace…");
+                await ConnectToIdAsync(known.Value.Id, known.Value.Name);
+                return Status("D30 conectada desde el inventario Bluetooth de Windows");
+            }
+            catch
+            {
+                Cleanup();
+            }
+        }
 
+        _progress("Escaneando anuncios Bluetooth LE de la D30…");
+        var candidate = await ScanForD30Async(TimeSpan.FromSeconds(8));
+        if (candidate is null)
+            return BridgeResponse.Fail("Windows no encontró una D30 anunciándose. No hace falta tocar el aviso ‘Agregar un dispositivo’: dejá la D30 encendida y reintentá.");
+
+        _progress($"D30 detectada ({candidate.Value.Name}) · conectando directamente, sin usar el aviso de Windows…");
         await ConnectToAddressAsync(candidate.Value.Address, candidate.Value.Name);
-        return Status("D30 conectada con el mismo backend Bluetooth nativo que usaba la versión anterior");
+        return Status("D30 conectada con Bluetooth nativo de Windows");
     }
 
     private static bool TryParseAddress(string? raw, out ulong address)
@@ -127,12 +166,33 @@ internal sealed class D30Bridge : IDisposable
         return cleaned.Length <= 12 && ulong.TryParse(cleaned, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out address);
     }
 
+    private async Task<(string Id, string Name)?> FindKnownD30Async()
+    {
+        try
+        {
+            var selector = BluetoothLEDevice.GetDeviceSelector();
+            var devices = await DeviceInformation.FindAllAsync(selector).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(4));
+            foreach (var info in devices)
+            {
+                var name = info.Name?.Trim() ?? string.Empty;
+                if (name.Contains("D30", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("PHOMEMO", StringComparison.OrdinalIgnoreCase))
+                    return (info.Id, string.IsNullOrWhiteSpace(name) ? "D30" : name);
+            }
+        }
+        catch
+        {
+            // Advertisement scanning remains the fallback.
+        }
+        return null;
+    }
+
     private async Task<(ulong Address, string Name)?> ScanForD30Async(TimeSpan timeout)
     {
         var tcs = new TaskCompletionSource<(ulong, string)?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cts = new CancellationTokenSource(timeout);
         var watcher = new BluetoothLEAdvertisementWatcher { ScanningMode = BluetoothLEScanningMode.Active };
-        (ulong Address, string Name, short Rssi)? best = null;
 
         TypedEventHandler<BluetoothLEAdvertisementWatcher, BluetoothLEAdvertisementReceivedEventArgs>? handler = null;
         handler = (_, args) =>
@@ -146,11 +206,7 @@ internal sealed class D30Bridge : IDisposable
                 if (!nameMatch && !serviceMatch) return;
 
                 var displayName = string.IsNullOrWhiteSpace(name) ? "D30" : name;
-                var current = (Address: args.BluetoothAddress, Name: displayName, Rssi: args.RawSignalStrengthInDBm);
-                if (best is null || current.Rssi > best.Value.Rssi) best = current;
-
-                if (name.Equals("D30", StringComparison.OrdinalIgnoreCase))
-                    tcs.TrySetResult((args.BluetoothAddress, displayName));
+                tcs.TrySetResult((args.BluetoothAddress, displayName));
             }
             catch { }
         };
@@ -159,8 +215,8 @@ internal sealed class D30Bridge : IDisposable
         watcher.Start();
         try
         {
-            using (cts.Token.Register(() => tcs.TrySetResult(best is null ? null : (best.Value.Address, best.Value.Name))))
-                return await tcs.Task.ConfigureAwait(false);
+            using (cts.Token.Register(() => tcs.TrySetResult(null)))
+                return await tcs.Task;
         }
         finally
         {
@@ -169,33 +225,57 @@ internal sealed class D30Bridge : IDisposable
         }
     }
 
+    private async Task ConnectToIdAsync(string id, string hintedName)
+    {
+        Cleanup();
+        _progress("Windows conoce la D30 · abriendo dispositivo BLE…");
+        _device = await BluetoothLEDevice.FromIdAsync(id).AsTask()
+                  .WaitAsync(TimeSpan.FromSeconds(5))
+                  ?? throw new InvalidOperationException("Windows conoce la D30 pero no pudo abrir el dispositivo BLE.");
+        await DiscoverGattAsync(_device.BluetoothAddress, hintedName);
+    }
+
     private async Task ConnectToAddressAsync(ulong address, string hintedName)
     {
         Cleanup();
-        _device = await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().ConfigureAwait(false)
+        _progress("Abriendo la D30 por su dirección Bluetooth…");
+        _device = await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask()
+                  .WaitAsync(TimeSpan.FromSeconds(5))
                   ?? throw new InvalidOperationException("Windows detectó la D30 pero no pudo abrir el dispositivo BLE.");
+        await DiscoverGattAsync(address, hintedName);
+    }
 
-        GattDeviceService? found = null;
-        Exception? last = null;
-        foreach (var uuid in ServiceUuids)
+    private async Task DiscoverGattAsync(ulong address, string hintedName)
+    {
+        if (_device is null) throw new InvalidOperationException("No hay dispositivo BLE abierto.");
+
+        _progress("D30 abierta · leyendo servicios GATT…");
+        var services = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(7));
+        if (services.Status != GattCommunicationStatus.Success)
         {
-            try
-            {
-                var result = await _device.GetGattServicesForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false);
-                if (result.Status == GattCommunicationStatus.Success && result.Services.Count > 0)
-                {
-                    found = result.Services[0];
-                    break;
-                }
-            }
-            catch (Exception ex) { last = ex; }
+            _progress($"Servicios GATT respondieron {services.Status} · probando caché de Windows…");
+            services = await _device.GetGattServicesAsync(BluetoothCacheMode.Cached).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(3));
         }
+        if (services.Status != GattCommunicationStatus.Success)
+            throw new InvalidOperationException($"Windows no pudo leer los servicios GATT de la D30 ({services.Status}).");
 
-        _service = found ?? throw new InvalidOperationException(last?.Message ?? "La D30 no expuso un servicio Bluetooth compatible.");
+        _service = services.Services.FirstOrDefault(s => ServiceUuids.Contains(s.Uuid));
+        if (_service is null)
+        {
+            foreach (var service in services.Services) service.Dispose();
+            throw new InvalidOperationException("La D30 respondió, pero no expuso ninguno de sus servicios de impresión conocidos.");
+        }
+        foreach (var service in services.Services)
+            if (!ReferenceEquals(service, _service)) service.Dispose();
+
+        _progress($"Servicio D30 {_service.Uuid} · buscando canal de escritura…");
         _session = _service.Session;
         if (_session.CanMaintainConnection) _session.MaintainConnection = true;
 
-        var charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false);
+        var charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
         if (charsResult.Status != GattCommunicationStatus.Success)
             throw new InvalidOperationException($"No pude leer los canales GATT ({charsResult.Status}).");
 
@@ -207,7 +287,8 @@ internal sealed class D30Bridge : IDisposable
 
         _address = address;
         _name = string.IsNullOrWhiteSpace(_device.Name) ? hintedName : _device.Name;
-        await Task.Delay(700).ConfigureAwait(false);
+        _progress($"Canal de impresión {_write.Uuid} listo · estabilizando enlace…");
+        await Task.Delay(550);
     }
 
     private static bool IsWriteUuid(Guid uuid)
@@ -238,10 +319,11 @@ internal sealed class D30Bridge : IDisposable
                     var option = _write.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)
                         ? GattWriteOption.WriteWithoutResponse
                         : GattWriteOption.WriteWithResponse;
-                    var result = await _write.WriteValueWithResultAsync(buffer, option).AsTask().ConfigureAwait(false);
+                    var result = await _write.WriteValueWithResultAsync(buffer, option).AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(5));
                     if (result.Status != GattCommunicationStatus.Success)
                         throw new InvalidOperationException($"Windows no pudo enviar datos a la D30 ({result.Status}).");
-                    await Task.Delay(18).ConfigureAwait(false);
+                    await Task.Delay(18);
                 }
             }
             return Status("Impresión enviada a la D30");

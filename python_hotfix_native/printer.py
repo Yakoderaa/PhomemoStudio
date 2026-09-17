@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -82,6 +83,11 @@ class D30Printer:
         except Exception:
             pass
 
+    def cancel_pending_connection(self):
+        self.snapshot.connected = False
+        self._emit("Intento Bluetooth cancelado")
+        self._stop_bridge()
+
     @staticmethod
     def _readline_with_timeout(stream, timeout: float) -> str:
         q: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
@@ -94,44 +100,54 @@ class D30Printer:
 
         threading.Thread(target=reader, daemon=True, name="D30BridgeRead").start()
         try:
-            ok, value = q.get(timeout=timeout)
+            ok, value = q.get(timeout=max(0.05, timeout))
         except queue.Empty:
             raise TimeoutError(f"El backend Bluetooth no respondió después de {int(timeout)} segundos.")
         if not ok:
             raise value  # type: ignore[misc]
         return str(value)
 
-    def _request(self, payload: dict, timeout: float = 22.0) -> dict:
+    def _request(self, payload: dict, timeout: float = 20.0) -> dict:
         with self._lock:
             self._start_bridge()
             assert self._proc and self._proc.stdin and self._proc.stdout
+            deadline = time.monotonic() + timeout
             try:
                 self._proc.stdin.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
                 self._proc.stdin.flush()
-                line = self._readline_with_timeout(self._proc.stdout, timeout)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(f"El backend Bluetooth no respondió después de {int(timeout)} segundos.")
+                    line = self._readline_with_timeout(self._proc.stdout, remaining)
+                    if not line:
+                        detail = ""
+                        if self._proc and self._proc.stderr:
+                            try:
+                                detail = self._proc.stderr.read(800)
+                            except Exception:
+                                pass
+                        raise RuntimeError("El backend Bluetooth nativo se cerró inesperadamente." + (f" {detail}" if detail else ""))
+                    data = json.loads(line)
+                    if data.get("event") == "progress":
+                        self.snapshot.message = data.get("message") or self.snapshot.message
+                        self.snapshot.connected = bool(data.get("connected", self.snapshot.connected))
+                        self._emit()
+                        continue
+                    break
             except TimeoutError:
+                stage = self.snapshot.message
                 self._stop_bridge()
                 self.snapshot.connected = False
                 self._emit("La conexión Bluetooth tardó demasiado y fue reiniciada.")
                 raise RuntimeError(
-                    "La D30 quedó esperando una operación Bluetooth de Windows durante demasiado tiempo. "
+                    f"Windows no terminó la conexión con la D30 a tiempo. Último paso: {stage}. "
                     "El backend se reinició automáticamente; volvé a pulsar Conectar D30."
                 )
             except Exception:
                 self._stop_bridge()
                 raise
 
-            if not line:
-                detail = ""
-                if self._proc and self._proc.stderr:
-                    try:
-                        detail = self._proc.stderr.read(800)
-                    except Exception:
-                        pass
-                self._stop_bridge()
-                raise RuntimeError("El backend Bluetooth nativo se cerró inesperadamente." + (f" {detail}" if detail else ""))
-
-            data = json.loads(line)
             self.snapshot.connected = bool(data.get("connected", False))
             self.snapshot.name = data.get("name") or "D30"
             self.snapshot.address = data.get("address") or ""
@@ -143,7 +159,7 @@ class D30Printer:
                 raise RuntimeError(self.snapshot.message)
             return data
 
-    def connect(self, preferred_address: str | None = None, timeout: float = 24) -> concurrent.futures.Future:
+    def connect(self, preferred_address: str | None = None, timeout: float = 20) -> concurrent.futures.Future:
         self._emit("Buscando D30 con Bluetooth nativo de Windows…")
         addr = preferred_address or self._last_address
         return self._executor.submit(self._request, {"command": "connect", "preferredAddress": addr}, timeout)
@@ -160,11 +176,11 @@ class D30Printer:
             return True
 
     def send_packets(self, packets: list[bytes], progress_cb: Callable[[int, int], None] | None = None):
-        return self._executor.submit(self._send_packets_sync, packets, progress_cb)
+        return self._executor.submit(self._send_packets_sync, packets, progress_cb, 0.0)
 
-    def _send_packets_sync(self, packets, progress_cb):
+    def _send_packets_sync(self, packets, progress_cb, post_delay: float = 0.0):
         if not self.snapshot.connected:
-            self._request({"command": "connect", "preferredAddress": self._last_address}, 24)
+            self._request({"command": "connect", "preferredAddress": self._last_address}, 20)
         total = sum(len(p) for p in packets)
         encoded = []
         done = 0
@@ -174,14 +190,28 @@ class D30Printer:
             if progress_cb:
                 progress_cb(min(done, total), total)
         result = self._request({"command": "send", "packets": encoded}, max(30, min(180, 30 + total / 4000)))
+        if post_delay:
+            time.sleep(post_delay)
         if progress_cb:
             progress_cb(total, total)
         self._emit(result.get("message") or "Impresión enviada a la D30")
         return True
 
     def calibrate(self, blank_raster: bytes, width_px: int, height_px: int):
-        from .core import make_print_packet
-        return self.send_packets(make_print_packet(blank_raster, width_px, height_px, density=1))
+        width_bytes = (int(width_px) + 7) // 8
+        expected = width_bytes * int(height_px)
+        if len(blank_raster) != expected:
+            raise ValueError(f"Raster de calibración inválido: {len(blank_raster)} != {expected}")
+        packets = [
+            bytes([0x1F, 0x11, 0x24, 0x00]),
+            bytes([
+                0x1B, 0x40, 0x1D, 0x76, 0x30, 0x00,
+                width_bytes & 0xFF, (width_bytes >> 8) & 0xFF,
+                int(height_px) & 0xFF, (int(height_px) >> 8) & 0xFF,
+            ]),
+            blank_raster,
+        ]
+        return self._executor.submit(self._send_packets_sync, packets, None, 1.1)
 
     def close(self):
         try:
