@@ -34,20 +34,40 @@ jobs:
           [IO.File]::WriteAllBytes($pngPath, $pngBytes)
           Copy-Item $pngPath (Join-Path $webAssetDir "sr-gato.png") -Force
 
-          Add-Type -AssemblyName System.Drawing
-          $resolvedPng = (Resolve-Path $pngPath).Path
-          $bitmap = [System.Drawing.Bitmap]::FromFile($resolvedPng)
-          try {
-            $hIcon = $bitmap.GetHicon()
-            $icon = [System.Drawing.Icon]::FromHandle($hIcon)
-            $stream = [IO.File]::Create($icoPath)
-            try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }
+          # Crear el ICO envolviendo el PNG directamente. Así Windows conserva
+          # el canal alpha del gato en la barra de tareas, Inicio y accesos directos.
+          if ($pngBytes.Length -lt 24 -or $pngBytes[0] -ne 0x89 -or $pngBytes[1] -ne 0x50) {
+            throw "El recurso del logo no es un PNG válido"
           }
-          finally { $bitmap.Dispose() }
+          $width = [System.Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($pngBytes, 16))
+          $height = [System.Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($pngBytes, 20))
+          $wByte = if ($width -ge 256) { [byte]0 } else { [byte]$width }
+          $hByte = if ($height -ge 256) { [byte]0 } else { [byte]$height }
+
+          $icoStream = [IO.File]::Create($icoPath)
+          $writer = [IO.BinaryWriter]::new($icoStream)
+          try {
+            $writer.Write([UInt16]0)               # reserved
+            $writer.Write([UInt16]1)               # type = icon
+            $writer.Write([UInt16]1)               # one image
+            $writer.Write($wByte)
+            $writer.Write($hByte)
+            $writer.Write([byte]0)                 # palette colors
+            $writer.Write([byte]0)                 # reserved
+            $writer.Write([UInt16]1)               # planes
+            $writer.Write([UInt16]32)              # bits per pixel
+            $writer.Write([UInt32]$pngBytes.Length)
+            $writer.Write([UInt32]22)              # image offset
+            $writer.Write($pngBytes)
+          }
+          finally {
+            $writer.Dispose()
+            $icoStream.Dispose()
+          }
 
           if ((Get-Item $pngPath).Length -lt 1000) { throw "El PNG del logo quedó inválido" }
           if ((Get-Item $icoPath).Length -lt 1000) { throw "El ICO del logo quedó inválido" }
-          Write-Host "Sr Gato assets ready: PNG=$((Get-Item $pngPath).Length) ICO=$((Get-Item $icoPath).Length)"
+          Write-Host "Sr Gato transparent assets ready: PNG=$((Get-Item $pngPath).Length) ICO=$((Get-Item $icoPath).Length) ${width}x${height}"
 
       - name: Restore and hotfix desktop web app
         shell: pwsh
@@ -101,7 +121,7 @@ jobs:
             $index = $index.Replace('<script src="app.js"></script>', '<script src="app.js"></script>' + [Environment]::NewLine + '  <script src="desktop-shell.js"></script>')
           }
           $index = $index.Replace('<div class="brand-mark">P</div>', '<div class="brand-mark" style="background:transparent;box-shadow:none;border-radius:0"><img src="assets/sr-gato.png" alt="Sr Gato" style="width:40px;height:40px;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(30,18,84,.25))" /></div>')
-          $index = $index.Replace('<span>D30 · V3.1 Desktop</span>', '<span>D30 · V3.2 Desktop</span>')
+          $index = $index.Replace('<span>D30 · V3.1 Desktop</span>', '<span>D30 · V3.2.1 Desktop</span>')
           Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
 
           node --check $outputPath
@@ -161,6 +181,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V3.2.0: nueva barra de ventana con mover/minimizar/maximizar/cerrar confiables, actualizador reparado con progreso y reinicio automático, y nuevo logo Sr Gato en la app e instalador."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V3.2.1: se elimina la barra superior personalizada y se vuelve a la barra nativa de Windows para mover, minimizar, maximizar y cerrar sin zonas bloqueadas. El icono Sr Gato ahora conserva transparencia real en Inicio, barra de tareas y accesos directos."
           }
           gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
