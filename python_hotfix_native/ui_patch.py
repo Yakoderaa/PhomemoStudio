@@ -14,8 +14,8 @@ def repl(old: str, new: str, label: str) -> None:
 
 repl(
     '        self.current_template_id=None; self.queue=[]; self._update_thread=None\n',
-    '        self.current_template_id=None; self.queue=[]; self._update_thread=None; self._connect_generation=0\n',
-    'connect generation',
+    '        self.current_template_id=None; self.queue=[]; self._update_thread=None; self._connect_generation=0; self._want_connected=False; self._maintenance_inflight=False; self._maintenance_timer=QTimer(self); self._maintenance_timer.setInterval(30000); self._maintenance_timer.timeout.connect(self._maintain_connection); self._maintenance_timer.start()\n',
+    'connect generation and maintenance timer',
 )
 repl(
     '        add_btn("Guardar",self.save_template); add_btn("Duplicar",self.duplicate_template); add_btn("PNG",self.export_png); add_btn("Imprimir actual",self.print_current,True)\n',
@@ -47,9 +47,11 @@ repl(
         self._connect_generation += 1
         generation=self._connect_generation
         if self.printer.snapshot.connected:
+            self._want_connected=False
             self.conn.setText("Desconectando D30…")
             fut=self.printer.disconnect(); self.wait_future(fut)
         else:
+            self._want_connected=True
             self.connect_btn.setEnabled(False)
             self.conn.setText("Buscando D30 con Windows…")
             self.statusBar().clearMessage()
@@ -58,6 +60,7 @@ repl(
             QTimer.singleShot(23000, lambda:self._connect_watchdog(fut,generation))
     def _connect_watchdog(self,fut:Future,generation:int):
         if generation!=self._connect_generation or fut.done(): return
+        self._want_connected=False
         try:self.printer.cancel_pending_connection()
         except Exception:pass
         self.connect_btn.setEnabled(True)
@@ -71,6 +74,15 @@ repl(
             except Exception as e:self.bridge.future_done.emit(None,e)
         fut.add_done_callback(done)
     def on_future_done(self,result,error):
+        if isinstance(result,tuple) and result and result[0] in ("maintenance","maintenance_error"):
+            self._maintenance_inflight=False
+            if result[0]=="maintenance":
+                data=result[1]
+                if isinstance(data,dict) and data.get("connected"):
+                    self._want_connected=True
+            elif self._want_connected:
+                self.conn.setText("D30 desconectada · reintentando automáticamente…")
+            return
         self.connect_btn.setEnabled(True); self.progress.hide(); self.statusBar().clearMessage()
         if error:
             if not self.printer.snapshot.connected:self.conn.setText("D30 desconectada")
@@ -91,12 +103,26 @@ repl(
 '''    def on_printer_status(self,s:PrinterSnapshot):
         self.statusBar().clearMessage()
         self.conn.setText(s.message); self.battery.setText(f"Batería {s.battery}%" if s.battery is not None else "Batería —"); self.paper.setText(f"Papel {s.paper}" if s.paper else "Papel —"); self.connect_btn.setText("Desconectar" if s.connected else "Conectar D30")
+        if s.connected: self._want_connected=True
         if s.address: self.state.last_device_address=s.address
+    def _auto_reconnect_checked(self):
+        try:
+            return any(box.text()=="Reconexión automática" and box.isChecked() for box in self.findChildren(QCheckBox))
+        except Exception:
+            return True
+    def _maintain_connection(self):
+        if not self._want_connected or self._maintenance_inflight or not self._auto_reconnect_checked(): return
+        self._maintenance_inflight=True
+        fut=self.printer.maintain_connection(self.state.last_device_address, timeout=18)
+        def done(f):
+            try:self.bridge.future_done.emit(("maintenance",f.result()),None)
+            except Exception as e:self.bridge.future_done.emit(("maintenance_error",str(e)),None)
+        fut.add_done_callback(done)
     def usable_labels(self):
         # La última etiqueta física queda inutilizable por estar demasiado cerca del final del rollo.
         return max(0,self.roll_remaining.value()-1)
 ''',
-    'usable labels helper',
+    'status keepalive and usable labels helper',
 )
 repl(
 '''    def print_current(self):
@@ -152,4 +178,4 @@ repl(
 )
 
 path.write_text(s, encoding="utf-8")
-print("Applied UI 4.1.2 patch: connection progress + calibration + last-label reserve")
+print("Applied UI 4.1.3 patch: connection progress + calibration + last-label reserve + keepalive/reconnect")
