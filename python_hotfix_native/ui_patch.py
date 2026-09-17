@@ -87,11 +87,13 @@ repl(
         if error:
             if not self.printer.snapshot.connected:self.conn.setText("D30 desconectada")
             QMessageBox.warning(self,APP_NAME,str(error)); self.statusBar().showMessage(str(error),7000); return
-        if isinstance(result,tuple) and result and result[0] in ("printed","calibrated"):
+        if isinstance(result,tuple) and result and result[0]=="printed":
             count=int(result[1])
             self.roll_remaining.setValue(max(0,self.roll_remaining.value()-count))
             self.update_roll_ui(); self.save_state()
-            if result[0]=="calibrated": self.statusBar().showMessage("Calibración terminada · consumió 1 etiqueta",6000)
+        elif isinstance(result,tuple) and result and result[0]=="calibrated":
+            self.update_roll_ui(); self.save_state()
+            self.statusBar().showMessage("Calibración terminada · contador del rollo sin cambios",6000)
 ''',
     'connect flow',
 )
@@ -160,22 +162,20 @@ repl(
     def update_roll_ui(self): self.roll_status.setText(f"Rollo {self.roll_remaining.value()}/{self.roll_total.value()}")
 ''',
 '''    def calibrate(self):
-        if self.usable_labels()<=0:
-            QMessageBox.warning(self,APP_NAME,"No hay una etiqueta utilizable para calibrar. La última etiqueta física se reserva porque está demasiado cerca del final del rollo."); return
         wmm,hmm=self.size_combo.currentData(); w,h=label_pixels(wmm,hmm); from PIL import Image
         blank=Image.new("L",(w,h),255); raster,rw,rh=image_to_d30_raster(blank)
         self.progress.setRange(0,0); self.progress.show(); self.statusBar().showMessage("Calibrando D30 / rollo…")
         fut=self.printer.calibrate(raster,rw,rh); fut.add_done_callback(self._calibration_done)
     def _calibration_done(self,fut):
-        try:fut.result(); self.bridge.future_done.emit(("calibrated",1),None)
+        try:fut.result(); self.bridge.future_done.emit(("calibrated",0),None)
         except Exception as e:self.bridge.future_done.emit(None,e)
     def update_roll_ui(self):
         usable=self.usable_labels()
         if hasattr(self,"roll_usable"): self.roll_usable.setText(str(usable))
         self.roll_status.setText(f"Rollo {self.roll_remaining.value()}/{self.roll_total.value()} · útiles {usable}")
 ''',
-    'calibration and roll UI',
+    'calibration without roll decrement and roll UI',
 )
 
 path.write_text(s, encoding="utf-8")
-print("Applied UI 4.1.3 patch: connection progress + calibration + last-label reserve + keepalive/reconnect")
+print("Applied UI 4.1.4 patch: calibration without decrement + fresh-process auto reconnect")
