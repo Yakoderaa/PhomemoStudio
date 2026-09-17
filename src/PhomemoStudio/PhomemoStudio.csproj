@@ -12,9 +12,9 @@
     <RootNamespace>PhomemoStudio</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\sr-gato.ico</ApplicationIcon>
-    <Version>3.2.0</Version>
-    <FileVersion>3.2.0.0</FileVersion>
-    <AssemblyVersion>3.2.0.0</AssemblyVersion>
+    <Version>3.2.1</Version>
+    <FileVersion>3.2.1.0</FileVersion>
+    <AssemblyVersion>3.2.1.0</AssemblyVersion>
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\sr-gato.png" />
+    <Resource Include="Assets\sr-gato.ico" />
     <Content Include="web\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
