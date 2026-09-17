@@ -1,4 +1,4 @@
-name: Build Windows installer and release
+name: Build Python Windows installer and release
 
 on:
   push:
@@ -15,123 +15,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Sr Gato app assets
-        shell: pwsh
-        run: |
-          $assetDir = "src\PhomemoStudio\Assets"
-          $webAssetDir = "src\PhomemoStudio\web\assets"
-          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
-          New-Item -ItemType Directory -Force -Path $webAssetDir | Out-Null
-
-          $logoParts = Get-ChildItem "$assetDir\sr-gato.b64.part*" | Sort-Object Name
-          if (-not $logoParts) { throw "No se encontraron los fragmentos del logo Sr Gato" }
-          $logoB64 = ($logoParts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
-          if (($logoB64.Length % 4) -ne 0) { throw "El base64 del logo quedó incompleto: $($logoB64.Length) caracteres" }
-
-          $pngPath = Join-Path $assetDir "sr-gato.png"
-          $icoPath = Join-Path $assetDir "sr-gato.ico"
-          $pngBytes = [Convert]::FromBase64String($logoB64)
-          [IO.File]::WriteAllBytes($pngPath, $pngBytes)
-          Copy-Item $pngPath (Join-Path $webAssetDir "sr-gato.png") -Force
-
-          # Crear el ICO envolviendo el PNG directamente. Así Windows conserva
-          # el canal alpha del gato en la barra de tareas, Inicio y accesos directos.
-          if ($pngBytes.Length -lt 24 -or $pngBytes[0] -ne 0x89 -or $pngBytes[1] -ne 0x50) {
-            throw "El recurso del logo no es un PNG válido"
-          }
-          $width = [System.Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($pngBytes, 16))
-          $height = [System.Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($pngBytes, 20))
-          $wByte = if ($width -ge 256) { [byte]0 } else { [byte]$width }
-          $hByte = if ($height -ge 256) { [byte]0 } else { [byte]$height }
-
-          $icoStream = [IO.File]::Create($icoPath)
-          $writer = [IO.BinaryWriter]::new($icoStream)
-          try {
-            $writer.Write([UInt16]0)               # reserved
-            $writer.Write([UInt16]1)               # type = icon
-            $writer.Write([UInt16]1)               # one image
-            $writer.Write($wByte)
-            $writer.Write($hByte)
-            $writer.Write([byte]0)                 # palette colors
-            $writer.Write([byte]0)                 # reserved
-            $writer.Write([UInt16]1)               # planes
-            $writer.Write([UInt16]32)              # bits per pixel
-            $writer.Write([UInt32]$pngBytes.Length)
-            $writer.Write([UInt32]22)              # image offset
-            $writer.Write($pngBytes)
-          }
-          finally {
-            $writer.Dispose()
-            $icoStream.Dispose()
-          }
-
-          if ((Get-Item $pngPath).Length -lt 1000) { throw "El PNG del logo quedó inválido" }
-          if ((Get-Item $icoPath).Length -lt 1000) { throw "El ICO del logo quedó inválido" }
-          Write-Host "Sr Gato transparent assets ready: PNG=$((Get-Item $pngPath).Length) ICO=$((Get-Item $icoPath).Length) ${width}x${height}"
-
-      - name: Restore and hotfix desktop web app
-        shell: pwsh
-        run: |
-          $parts = Get-ChildItem "patch\app_v301.gz.b64.part*" | Sort-Object Name
-          if (-not $parts) { throw "No se encontraron los fragmentos de app_v301" }
-          $joined = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          $compressed = [Convert]::FromBase64String($joined)
-          $input = [System.IO.MemoryStream]::new([byte[]]$compressed)
-          $gzip = [System.IO.Compression.GZipStream]::new($input, [System.IO.Compression.CompressionMode]::Decompress)
-          $outputPath = "src\PhomemoStudio\web\app.js"
-          $output = [System.IO.File]::Create($outputPath)
-          try { $gzip.CopyTo($output) }
-          finally { $output.Dispose(); $gzip.Dispose(); $input.Dispose() }
-
-          $app = Get-Content $outputPath -Raw
-          if ($app -notmatch 'async function ensureConnected\s*\(') {
-            $anchor = "  function setBtDiagnostic(msg)"
-            if (-not $app.Contains($anchor)) { throw "No se encontró el punto de inserción para ensureConnected" }
-            $helperLines = @(
-              '  async function ensureConnected(){',
-              '    if(!printer)throw new Error(''El controlador de la D30 no está listo.'');',
-              '    if(printer.connected)return true;',
-              '    setBtDiagnostic(''Conectando la D30 antes de continuar…'');',
-              '    try{',
-              '      await printer.connect(false);',
-              '      updatePrinterUI();',
-              '      if(!printer.connected)throw new Error(''No se pudo establecer la conexión con la D30.'');',
-              '      setBtDiagnostic(`D30 lista · ${printer.device?.name||''impresora conectada''}`);',
-              '      return true;',
-              '    }catch(e){',
-              '      updatePrinterUI();',
-              '      setBtDiagnostic(`No se pudo conectar antes de imprimir: ${e?.message||e}`);',
-              '      throw e;',
-              '    }',
-              '  }',
-              ''
-            )
-            $helper = ($helperLines -join [Environment]::NewLine) + [Environment]::NewLine
-            $app = $app.Replace($anchor, $helper + $anchor)
-          }
-
-          $oldStatus = "try{await printer.queryStatus();}catch(e){console.warn('status after connect',e);}"
-          $newStatus = "setTimeout(()=>printer.queryStatus().catch(e=>console.warn('status after connect',e)),6000);"
-          $app = $app.Replace($oldStatus, $newStatus)
-          Set-Content -Path $outputPath -Value $app -Encoding utf8 -NoNewline
-
-          $indexPath = "src\PhomemoStudio\web\index.html"
-          $index = Get-Content $indexPath -Raw
-          if ($index -notmatch 'desktop-shell\.js') {
-            $index = $index.Replace('<script src="app.js"></script>', '<script src="app.js"></script>' + [Environment]::NewLine + '  <script src="desktop-shell.js"></script>')
-          }
-          $index = $index.Replace('<div class="brand-mark">P</div>', '<div class="brand-mark" style="background:transparent;box-shadow:none;border-radius:0"><img src="assets/sr-gato.png" alt="Sr Gato" style="width:40px;height:40px;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(30,18,84,.25))" /></div>')
-          $index = $index.Replace('<span>D30 · V3.1 Desktop</span>', '<span>D30 · V3.2.1 Desktop</span>')
-          Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
-
-          node --check $outputPath
-          node --check "src\PhomemoStudio\web\desktop-shell.js"
-          Write-Host "Restored + hotfixed $outputPath ($((Get-Item $outputPath).Length) bytes)"
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          dotnet-version: '8.0.x'
+          python-version: '3.12'
+
+      - name: Restore Python source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem "python_src_v4.b64.part*" | Sort-Object Name
+          if (-not $parts) { throw "No se encontraron los fragmentos del código Python" }
+          $joined = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          $bytes = [Convert]::FromBase64String($joined)
+          [IO.File]::WriteAllBytes("python_src_v4.zip", $bytes)
+          if (Test-Path python_app) { Remove-Item python_app -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path python_app | Out-Null
+          Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
+
+      - name: Restore transparent Sr Gato assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path python_app\assets | Out-Null
+          $parts = Get-ChildItem "src\PhomemoStudio\Assets\sr-gato.b64.part*" | Sort-Object Name
+          if (-not $parts) { throw "No se encontraron los fragmentos del logo Sr Gato" }
+          $b64 = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          $png = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes("python_app\assets\sr-gato.png", $png)
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r python_app\requirements.txt
+
+      - name: Build transparent Windows icon
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; from pathlib import Path; p=Path('python_app/assets/sr-gato.png'); img=Image.open(p).convert('RGBA'); bbox=img.getchannel('A').getbbox(); img=img.crop(bbox) if bbox else img; side=max(img.size); pad=max(8,int(side*.06)); out=Image.new('RGBA',(side+pad*2,side+pad*2),(0,0,0,0)); out.alpha_composite(img,((out.width-img.width)//2,(out.height-img.height)//2)); out.save('python_app/assets/sr-gato.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]); print('alpha',out.getchannel('A').getextrema())"
+
+      - name: Run Python tests
+        shell: pwsh
+        env:
+          PYTHONPATH: python_app
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q python_app\phomemo_studio python_app\tests
+          pytest -q python_app\tests
+          python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); assert w.windowTitle().startswith('Phomemo Studio'); w.close(); print('UI smoke OK')"
 
       - name: Read version
         id: version
@@ -140,18 +70,13 @@ jobs:
           $v = (Get-Content version.txt -Raw).Trim()
           "value=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Restore
-        run: dotnet restore src/PhomemoStudio/PhomemoStudio.csproj
-
-      - name: Publish Windows app
+      - name: Build Python EXE
         shell: pwsh
+        working-directory: python_app
         run: |
-          dotnet publish src/PhomemoStudio/PhomemoStudio.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:Version=${{ steps.version.outputs.value }} `
-            -p:FileVersion=${{ steps.version.outputs.value }}.0 `
-            -p:AssemblyVersion=${{ steps.version.outputs.value }}.0 `
-            -o publish
+          pyinstaller --noconfirm --clean PhomemoStudio.spec
+          if (-not (Test-Path dist\PhomemoStudio.exe)) { throw "PyInstaller no generó PhomemoStudio.exe" }
+          Write-Host "EXE bytes: $((Get-Item dist\PhomemoStudio.exe).Length)"
 
       - name: Install Inno Setup
         shell: pwsh
@@ -159,21 +84,22 @@ jobs:
 
       - name: Build installer
         shell: pwsh
+        working-directory: python_app
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.value }}" installer\PhomemoStudio.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.value }}" installer.iss
           $hash = (Get-FileHash dist\PhomemoStudioSetup.exe -Algorithm SHA256).Hash
           "$hash  PhomemoStudioSetup.exe" | Out-File -Encoding ascii dist\PhomemoStudioSetup.exe.sha256
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Python
           path: |
-            dist/PhomemoStudioSetup.exe
-            dist/PhomemoStudioSetup.exe.sha256
+            python_app/dist/PhomemoStudioSetup.exe
+            python_app/dist/PhomemoStudioSetup.exe.sha256
+            python_app/dist/PhomemoStudio.exe
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,6 +107,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V3.2.1: se elimina la barra superior personalizada y se vuelve a la barra nativa de Windows para mover, minimizar, maximizar y cerrar sin zonas bloqueadas. El icono Sr Gato ahora conserva transparencia real en Inicio, barra de tareas y accesos directos."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.0: migración completa del runtime a Python/PySide6. Editor, plantillas, grupos, cola, control de rollo, Bluetooth D30, impresión raster, calibración, actualización automática y ventana nativa de Windows ya no dependen de WebView2 ni del frontend JavaScript/C#. Incluye pruebas automatizadas de configuración, persistencia, raster/protocolo y smoke test de interfaz."
           }
-          gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
+          gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
