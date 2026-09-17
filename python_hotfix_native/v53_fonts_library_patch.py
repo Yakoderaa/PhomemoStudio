@@ -21,6 +21,11 @@ new_action = '''    target.addSeparator()\n    from PySide6.QtGui import QAction
 if old_action in mod:
     mod = mod.replace(old_action, new_action)
 
+# The editable font field used a QLineEdit clear button, which renders as an extra
+# X/cross at the right side of the selected font name. Keep type-to-search but remove
+# that visual control so the typography inspector stays clean.
+mod = mod.replace('line.setClearButtonEnabled(True)', 'line.setClearButtonEnabled(False)')
+
 target.write_text(mod, encoding="utf-8")
 
 ui = pkg / "ui.py"
@@ -30,4 +35,4 @@ if marker not in s:
     s += '''\n\n# PHOMEMO_V53_FONTS_LIBRARY_INSTALL\nfrom .v53_fonts_library import install as _install_v53_fonts_library\n_install_v53_fonts_library(MainWindow)\n'''
     ui.write_text(s, encoding="utf-8")
 
-print("Applied Phomemo Studio 5.3 live searchable fonts + massive objects/decor library + runtime fixes")
+print("Applied Phomemo Studio 5.3 live searchable fonts + massive objects/decor library + runtime fixes + clean font field")
