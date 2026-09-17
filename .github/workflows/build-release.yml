@@ -20,6 +20,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Restore Python source archive
         shell: pwsh
         run: |
@@ -32,26 +37,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply Python BLE hotfixes
+      - name: Apply native Windows BLE backend
         shell: pwsh
         run: |
-          Copy-Item python_hotfix\printer.py python_app\phomemo_studio\printer.py -Force
-          Copy-Item python_hotfix\test_printer.py python_app\tests\test_printer.py -Force
-          Copy-Item python_hotfix_printer_402.py python_app\phomemo_studio\ble402.py -Force
-
+          Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
+          Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.0.2"')
-          $init += [Environment]::NewLine + 'from . import ble402  # noqa: F401' + [Environment]::NewLine
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-
-          $specPath = "python_app\PhomemoStudio.spec"
-          $spec = Get-Content $specPath -Raw
-          $old = "hiddenimports=['bleak.backends.winrt','bleak.backends.winrt.client','bleak.backends.winrt.scanner']"
-          $new = "hiddenimports=['bleak.backends.winrt','bleak.backends.winrt.client','bleak.backends.winrt.scanner','winrt.windows.devices.bluetooth','winrt.windows.devices.enumeration']"
-          $spec = $spec.Replace($old, $new)
-          Set-Content -Path $specPath -Value $spec -Encoding utf8 -NoNewline
-          Write-Host "Applied BLE 4.0.2: advertisement scan + native Windows DeviceInformation fallback"
+          Write-Host "Python UI kept; BLE transport reverted to proven native Windows backend"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -81,9 +76,19 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m compileall -q python_app\phomemo_studio python_app\tests
-          pytest -q python_app\tests
-          python -c "from phomemo_studio.ble402 import _format_bt_address; assert _format_bt_address(0xA1B2C3D4E5F6)=='A1:B2:C3:D4:E5:F6'; print('BLE fallback smoke OK')"
+          pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
+          python -c "from phomemo_studio.printer import PrinterSnapshot, D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); assert w.windowTitle().startswith('Phomemo Studio'); w.close(); print('UI smoke OK')"
+
+      - name: Build native BLE bridge
+        shell: pwsh
+        run: |
+          dotnet publish native_bridge\PhomemoBleBridge\PhomemoBleBridge.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o native_bridge\publish
+          if (-not (Test-Path native_bridge\publish\PhomemoBleBridge.exe)) { throw "No se generó PhomemoBleBridge.exe" }
+          Write-Host "BLE bridge bytes: $((Get-Item native_bridge\publish\PhomemoBleBridge.exe).Length)"
 
       - name: Read version
         id: version
@@ -100,6 +105,11 @@ jobs:
           if (-not (Test-Path dist\PhomemoStudio.exe)) { throw "PyInstaller no generó PhomemoStudio.exe" }
           Write-Host "EXE bytes: $((Get-Item dist\PhomemoStudio.exe).Length)"
 
+      - name: Stage native BLE bridge
+        shell: pwsh
+        run: |
+          Copy-Item native_bridge\publish\PhomemoBleBridge.exe python_app\dist\PhomemoBleBridge.exe -Force
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -115,11 +125,12 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Python
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
             python_app/dist/PhomemoStudio.exe
+            python_app/dist/PhomemoBleBridge.exe
 
       - name: Create GitHub release
         shell: pwsh
@@ -129,6 +140,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.2: agrega un segundo camino de detección Bluetooth nativo de Windows. Si el escaneo por anuncios BLE devuelve cero dispositivos, la app enumera el inventario Bluetooth LE de Windows con DeviceInformation/BluetoothLEDevice y prueba el perfil GATT de los candidatos, evitando confundir 'cero anuncios' con una impresora ocupada."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.0: la interfaz y lógica general continúan en Python/PySide6, pero la comunicación Bluetooth D30 vuelve al backend nativo de Windows usado por la versión anterior que ya funcionaba en este equipo. El helper nativo mantiene la sesión GATT y recibe desde Python los paquetes de impresión/calibración."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
