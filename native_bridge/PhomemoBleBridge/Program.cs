@@ -39,6 +39,7 @@ internal static class Program
                 response = req.Command?.ToLowerInvariant() switch
                 {
                     "connect" => await bridge.ConnectAsync(req.PreferredAddress),
+                    "maintain" => await bridge.MaintainAsync(req.PreferredAddress),
                     "disconnect" => bridge.Disconnect(),
                     "send" => await bridge.SendAsync(req.Packets ?? []),
                     "status" => bridge.Status(),
@@ -98,13 +99,16 @@ internal sealed class D30Bridge : IDisposable
         new("49535343-fe7d-4ae5-8fa9-9fafd205e455")
     };
 
+    private static readonly byte[] KeepAlivePacket = { 0x1F, 0x11, 0x08 };
     private readonly Action<string> _progress;
     private BluetoothLEDevice? _device;
     private GattDeviceService? _service;
     private GattSession? _session;
     private GattCharacteristic? _write;
     private ulong? _address;
+    private ulong? _lastAddress;
     private string _name = "D30";
+    private DateTimeOffset _lastTrafficUtc = DateTimeOffset.MinValue;
 
     public D30Bridge(Action<string>? progress = null)
     {
@@ -118,7 +122,15 @@ internal sealed class D30Bridge : IDisposable
     {
         if (IsConnected) return Status("D30 conectada");
 
-        if (TryParseAddress(preferredAddress, out var saved))
+        ulong saved;
+        var hasSaved = TryParseAddress(preferredAddress, out saved);
+        if (!hasSaved && _lastAddress is ulong remembered)
+        {
+            saved = remembered;
+            hasSaved = true;
+        }
+
+        if (hasSaved)
         {
             _progress("Probando la D30 guardada…");
             try
@@ -156,6 +168,48 @@ internal sealed class D30Bridge : IDisposable
         _progress($"D30 detectada ({candidate.Value.Name}) · conectando directamente, sin usar el aviso de Windows…");
         await ConnectToAddressAsync(candidate.Value.Address, candidate.Value.Name);
         return Status("D30 conectada con Bluetooth nativo de Windows");
+    }
+
+    public async Task<BridgeResponse> MaintainAsync(string? preferredAddress)
+    {
+        if (!IsConnected)
+        {
+            var reconnect = await ConnectAsync(preferredAddress);
+            if (!reconnect.Ok || !reconnect.Connected)
+                return reconnect;
+            return Status("D30 reconectada automáticamente");
+        }
+
+        // La D30 suele entrar en reposo tras varios minutos sin tráfico. Cada dos minutos,
+        // una consulta de batería muy corta mantiene viva la sesión sin imprimir ni avanzar papel.
+        if (DateTimeOffset.UtcNow - _lastTrafficUtc >= TimeSpan.FromMinutes(2))
+        {
+            try
+            {
+                await WritePayloadAsync(KeepAlivePacket);
+                return Status("D30 conectada · enlace activo");
+            }
+            catch
+            {
+                var remembered = _lastAddress;
+                Cleanup();
+                if (remembered is ulong address)
+                {
+                    try
+                    {
+                        await ConnectToAddressAsync(address, "D30");
+                        return Status("D30 reconectada automáticamente");
+                    }
+                    catch
+                    {
+                        Cleanup();
+                    }
+                }
+                return BridgeResponse.Fail("La D30 perdió el enlace y Windows todavía no permitió reconectarla.");
+            }
+        }
+
+        return Status("D30 conectada");
     }
 
     private static bool TryParseAddress(string? raw, out ulong address)
@@ -286,7 +340,9 @@ internal sealed class D30Bridge : IDisposable
         if (_write is null) throw new InvalidOperationException("Encontré la D30 pero no su canal de escritura.");
 
         _address = address;
+        _lastAddress = address;
         _name = string.IsNullOrWhiteSpace(_device.Name) ? hintedName : _device.Name;
+        _lastTrafficUtc = DateTimeOffset.UtcNow;
         _progress($"Canal de impresión {_write.Uuid} listo · estabilizando enlace…");
         await Task.Delay(550);
     }
@@ -300,6 +356,28 @@ internal sealed class D30Bridge : IDisposable
                s.StartsWith("0000ffe1", StringComparison.OrdinalIgnoreCase);
     }
 
+    private async Task WritePayloadAsync(byte[] bytes)
+    {
+        if (_write is null) throw new InvalidOperationException("La D30 no tiene un canal de escritura activo.");
+
+        for (var i = 0; i < bytes.Length; i += 128)
+        {
+            var chunk = bytes.AsSpan(i, Math.Min(128, bytes.Length - i)).ToArray();
+            using var writer = new DataWriter();
+            writer.WriteBytes(chunk);
+            var buffer = writer.DetachBuffer();
+            var option = _write.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)
+                ? GattWriteOption.WriteWithoutResponse
+                : GattWriteOption.WriteWithResponse;
+            var result = await _write.WriteValueWithResultAsync(buffer, option).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            if (result.Status != GattCommunicationStatus.Success)
+                throw new InvalidOperationException($"Windows no pudo enviar datos a la D30 ({result.Status}).");
+            _lastTrafficUtc = DateTimeOffset.UtcNow;
+            if (bytes.Length > 128) await Task.Delay(18);
+        }
+    }
+
     public async Task<BridgeResponse> SendAsync(string[] packets)
     {
         if (!IsConnected || _write is null)
@@ -310,21 +388,7 @@ internal sealed class D30Bridge : IDisposable
             foreach (var encoded in packets)
             {
                 var bytes = Convert.FromBase64String(encoded);
-                for (var i = 0; i < bytes.Length; i += 128)
-                {
-                    var chunk = bytes.AsSpan(i, Math.Min(128, bytes.Length - i)).ToArray();
-                    using var writer = new DataWriter();
-                    writer.WriteBytes(chunk);
-                    var buffer = writer.DetachBuffer();
-                    var option = _write.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)
-                        ? GattWriteOption.WriteWithoutResponse
-                        : GattWriteOption.WriteWithResponse;
-                    var result = await _write.WriteValueWithResultAsync(buffer, option).AsTask()
-                        .WaitAsync(TimeSpan.FromSeconds(5));
-                    if (result.Status != GattCommunicationStatus.Success)
-                        throw new InvalidOperationException($"Windows no pudo enviar datos a la D30 ({result.Status}).");
-                    await Task.Delay(18);
-                }
+                await WritePayloadAsync(bytes);
             }
             return Status("Impresión enviada a la D30");
         }
@@ -339,20 +403,20 @@ internal sealed class D30Bridge : IDisposable
         Ok = IsConnected,
         Connected = IsConnected,
         Name = _name,
-        Address = _address?.ToString("X12", CultureInfo.InvariantCulture) ?? "",
+        Address = _address?.ToString("X12", CultureInfo.InvariantCulture) ?? _lastAddress?.ToString("X12", CultureInfo.InvariantCulture) ?? "",
         Message = message ?? (IsConnected ? "D30 conectada" : "D30 desconectada")
     };
 
     public BridgeResponse Disconnect()
     {
         Cleanup();
-        return new BridgeResponse { Ok = true, Connected = false, Name = _name, Message = "D30 desconectada" };
+        return new BridgeResponse { Ok = true, Connected = false, Name = _name, Address = _lastAddress?.ToString("X12", CultureInfo.InvariantCulture) ?? "", Message = "D30 desconectada" };
     }
 
     public BridgeResponse Quit()
     {
         Cleanup();
-        return new BridgeResponse { Ok = true, Connected = false, Name = _name, Message = "Cerrando bridge", Quit = true };
+        return new BridgeResponse { Ok = true, Connected = false, Name = _name, Address = _lastAddress?.ToString("X12", CultureInfo.InvariantCulture) ?? "", Message = "Cerrando bridge", Quit = true };
     }
 
     private void Cleanup()
