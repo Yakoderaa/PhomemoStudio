@@ -15,6 +15,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare Sr Gato app assets
+        shell: pwsh
+        run: |
+          $assetDir = "src\PhomemoStudio\Assets"
+          $webAssetDir = "src\PhomemoStudio\web\assets"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $webAssetDir | Out-Null
+
+          $pngB64Path = Join-Path $assetDir "sr-gato.png.b64"
+          $pngPath = Join-Path $assetDir "sr-gato.png"
+          $icoPath = Join-Path $assetDir "sr-gato.ico"
+          if (-not (Test-Path $pngB64Path)) { throw "No se encontró el recurso base64 del logo Sr Gato" }
+
+          $pngBytes = [Convert]::FromBase64String((Get-Content $pngB64Path -Raw).Trim())
+          [IO.File]::WriteAllBytes($pngPath, $pngBytes)
+          Copy-Item $pngPath (Join-Path $webAssetDir "sr-gato.png") -Force
+
+          Add-Type -AssemblyName System.Drawing
+          $bitmap = [System.Drawing.Bitmap]::FromFile((Resolve-Path $pngPath))
+          try {
+            $hIcon = $bitmap.GetHicon()
+            $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+            $stream = [IO.File]::Create($icoPath)
+            try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }
+          }
+          finally {
+            $bitmap.Dispose()
+          }
+
+          if ((Get-Item $pngPath).Length -lt 1000) { throw "El PNG del logo quedó inválido" }
+          if ((Get-Item $icoPath).Length -lt 1000) { throw "El ICO del logo quedó inválido" }
+          Write-Host "Sr Gato assets ready: PNG=$((Get-Item $pngPath).Length) ICO=$((Get-Item $icoPath).Length)"
+
       - name: Restore and hotfix desktop web app
         shell: pwsh
         run: |
@@ -69,8 +102,10 @@ jobs:
           $index = Get-Content $indexPath -Raw
           if ($index -notmatch 'desktop-shell\.js') {
             $index = $index.Replace('<script src="app.js"></script>', '<script src="app.js"></script>' + [Environment]::NewLine + '  <script src="desktop-shell.js"></script>')
-            Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
           }
+          $index = $index.Replace('<div class="brand-mark">P</div>', '<div class="brand-mark" style="background:transparent;box-shadow:none;border-radius:0"><img src="assets/sr-gato.png" alt="Sr Gato" style="width:40px;height:40px;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(30,18,84,.25))" /></div>')
+          $index = $index.Replace('<span>D30 · V3.1 Desktop</span>', '<span>D30 · V3.2 Desktop</span>')
+          Set-Content -Path $indexPath -Value $index -Encoding utf8 -NoNewline
 
           node --check $outputPath
           node --check "src\PhomemoStudio\web\desktop-shell.js"
@@ -129,6 +164,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "Actualizador renovado: Buscar actualizaciones ejecuta el flujo completo, muestra progreso de descarga, verifica SHA-256, abre el instalador con progreso visible, cierra Phomemo Studio durante la instalación y vuelve a abrirlo automáticamente al terminar."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V3.2.0: nueva barra de ventana con mover/minimizar/maximizar/cerrar confiables, actualizador reparado con progreso y reinicio automático, y nuevo logo Sr Gato en la app e instalador."
           }
           gh release upload $tag dist\PhomemoStudioSetup.exe dist\PhomemoStudioSetup.exe.sha256 --clobber
