@@ -44,9 +44,25 @@ jobs:
           Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.1"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Python UI kept; BLE transport reverted to proven native Windows backend"
+
+          $bridgePath = "native_bridge\PhomemoBleBridge\Program.cs"
+          $bridge = Get-Content $bridgePath -Raw
+          $bridge = $bridge.Replace(
+            'await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().ConfigureAwait(false)',
+            'await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false)'
+          )
+          $bridge = $bridge.Replace(
+            'await _device.GetGattServicesForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false)',
+            'await _device.GetGattServicesForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false)'
+          )
+          $bridge = $bridge.Replace(
+            'await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().ConfigureAwait(false)',
+            'await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false)'
+          )
+          Set-Content -Path $bridgePath -Value $bridge -Encoding utf8 -NoNewline
+          Write-Host "Python UI kept; native Windows BLE backend now has hard GATT timeouts"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -140,6 +156,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.0: la interfaz y lógica general continúan en Python/PySide6, pero la comunicación Bluetooth D30 vuelve al backend nativo de Windows usado por la versión anterior que ya funcionaba en este equipo. El helper nativo mantiene la sesión GATT y recibe desde Python los paquetes de impresión/calibración."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.1: corrige el estado Conectando infinito. El wrapper Python y las operaciones Bluetooth/GATT nativas de Windows ahora tienen límites de tiempo estrictos; si Windows bloquea una operación, el helper se reinicia automáticamente y la app vuelve a responder mostrando el error real."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
