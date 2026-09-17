@@ -150,7 +150,7 @@ class D30Printer:
 
             self.snapshot.connected = bool(data.get("connected", False))
             self.snapshot.name = data.get("name") or "D30"
-            self.snapshot.address = data.get("address") or ""
+            self.snapshot.address = data.get("address") or self.snapshot.address or ""
             self.snapshot.message = data.get("message") or self.snapshot.message
             if self.snapshot.address:
                 self._last_address = self.snapshot.address
@@ -163,6 +163,11 @@ class D30Printer:
         self._emit("Buscando D30 con Bluetooth nativo de Windows…")
         addr = preferred_address or self._last_address
         return self._executor.submit(self._request, {"command": "connect", "preferredAddress": addr}, timeout)
+
+    def maintain_connection(self, preferred_address: str | None = None, timeout: float = 18) -> concurrent.futures.Future:
+        """Keep the D30 awake and reconnect it if Windows reports the GATT link as lost."""
+        addr = preferred_address or self._last_address or self.snapshot.address
+        return self._executor.submit(self._request, {"command": "maintain", "preferredAddress": addr}, timeout)
 
     def disconnect(self):
         return self._executor.submit(self._disconnect_sync)
