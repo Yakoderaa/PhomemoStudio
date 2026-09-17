@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.2.0 app enhancements
+      - name: Apply 5.3.0 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -50,11 +50,12 @@ jobs:
           python python_hotfix_native\studio_pro_patch.py
           python python_hotfix_native\v51_redesign_patch.py
           python python_hotfix_native\v52_polish_patch.py
+          python python_hotfix_native\v53_fonts_library_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.2.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.3.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.2.0: modern plus/minus steppers and large open-licensed icon library"
+          Write-Host "Applied 5.3.0: live searchable font selector and massive objects/decor library"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -91,9 +92,9 @@ jobs:
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
           python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
-          python -c "import qtawesome as qta; qta.icon('fa6s.house'); inst=qta._instance(); n=sum(len(v) for v in getattr(inst,'charmap',{}).values()); assert n>500; print('Open icon catalog',n)"
+          python -c "from phomemo_studio.v53_fonts_library import massive_catalog_size; n=massive_catalog_size(); assert n>20000, n; print('Massive open object catalog',n)"
           python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; print('EXE icon embedded in spec')"
-          python -c "from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==2; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.2 polish + library + roll accounting smoke OK')"
+          python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3 live fonts + massive library + roll accounting smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -146,7 +147,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-LibraryPolish
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-FontsLibrary
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -163,6 +164,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.2.0: controles numéricos modernizados con stepper +/- integrado y mayor claridad visual. La biblioteca de Formas ahora suma una pestaña de Iconos con miles de recursos de licencia abierta, con buscador, categorías, filtros por colección y carga paginada. No redistribuye recursos propietarios de Print Master. Se conservan el rediseño V5.1, fuentes Windows/Adobe, actualizador automático, calibración sin descuento y Bluetooth silencioso."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.3.0: el selector de tipografías ahora es editable y permite buscar/autocompletar escribiendo letra por letra. La app vigila las carpetas de fuentes de Windows, usuario y Adobe y refresca automáticamente el listado cuando se instala una fuente nueva, además de incluir Actualizar fuentes ahora. La biblioteca de Formas suma una pestaña Objetos con más de 20.000 recursos de colecciones abiertas y una pestaña Adornos con 120 recursos originales generados por Phomemo Studio. Se conservan el rediseño, actualizador, calibración sin descuento y Bluetooth silencioso. No se redistribuyen recursos propietarios de Print Master."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
