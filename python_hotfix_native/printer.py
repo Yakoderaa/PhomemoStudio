@@ -165,9 +165,37 @@ class D30Printer:
         return self._executor.submit(self._request, {"command": "connect", "preferredAddress": addr}, timeout)
 
     def maintain_connection(self, preferred_address: str | None = None, timeout: float = 18) -> concurrent.futures.Future:
-        """Keep the D30 awake and reconnect it if Windows reports the GATT link as lost."""
+        """Keep the D30 awake and rebuild the native bridge after an automatic reconnect."""
         addr = preferred_address or self._last_address or self.snapshot.address
-        return self._executor.submit(self._request, {"command": "maintain", "preferredAddress": addr}, timeout)
+        return self._executor.submit(self._maintain_connection_sync, addr, timeout)
+
+    def _maintain_connection_sync(self, addr: str | None, timeout: float) -> dict:
+        # WinRT can leave GATT wrappers disposed after reconnecting inside the same helper process.
+        # If the native helper reports that it had to reconnect (or maintenance itself fails),
+        # recreate the helper process and connect once more. This gives subsequent print jobs a
+        # completely fresh set of BluetoothLEDevice/GATT objects instead of stale disposed ones.
+        rebuild = False
+        try:
+            result = self._request({"command": "maintain", "preferredAddress": addr}, timeout)
+            message = str(result.get("message") or "").lower()
+            rebuild = not bool(result.get("connected")) or "reconectada automáticamente" in message
+            if not rebuild:
+                return result
+        except Exception:
+            rebuild = True
+
+        if rebuild:
+            self._stop_bridge()
+            self.snapshot.connected = False
+            self._emit("D30 desconectada · reconstruyendo enlace Bluetooth…")
+            result = self._request({"command": "connect", "preferredAddress": addr}, timeout)
+            if result.get("connected"):
+                result["message"] = "D30 reconectada automáticamente · enlace renovado"
+                self.snapshot.message = result["message"]
+                self._emit()
+            return result
+
+        raise RuntimeError("No se pudo mantener la conexión con la D30.")
 
     def disconnect(self):
         return self._executor.submit(self._disconnect_sync)
