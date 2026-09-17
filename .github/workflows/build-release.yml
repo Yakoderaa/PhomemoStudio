@@ -28,12 +28,15 @@ jobs:
           $icoPath = Join-Path $assetDir "sr-gato.ico"
           if (-not (Test-Path $pngB64Path)) { throw "No se encontró el recurso base64 del logo Sr Gato" }
 
-          $pngBytes = [Convert]::FromBase64String((Get-Content $pngB64Path -Raw).Trim())
+          $rawLogo = Get-Content $pngB64Path -Raw
+          $cleanLogo = [Regex]::Replace($rawLogo, '[^A-Za-z0-9+/=]', '')
+          $pngBytes = [Convert]::FromBase64String($cleanLogo)
           [IO.File]::WriteAllBytes($pngPath, $pngBytes)
           Copy-Item $pngPath (Join-Path $webAssetDir "sr-gato.png") -Force
 
           Add-Type -AssemblyName System.Drawing
-          $bitmap = [System.Drawing.Bitmap]::FromFile((Resolve-Path $pngPath))
+          $resolvedPng = (Resolve-Path $pngPath).Path
+          $bitmap = [System.Drawing.Bitmap]::FromFile($resolvedPng)
           try {
             $hIcon = $bitmap.GetHicon()
             $icon = [System.Drawing.Icon]::FromHandle($hIcon)
