@@ -2,7 +2,7 @@ name: Build Python Windows installer and release
 
 on:
   push:
-    branches: [ main, fix-connect-calibration-4.1.2 ]
+    branches: [ main, keepalive-autoreconnect-4.1.3 ]
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 4.1.2 app hotfixes
+      - name: Apply 4.1.3 app hotfixes
         shell: pwsh
         run: |
           Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
@@ -45,9 +45,9 @@ jobs:
           python python_hotfix_native\ui_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.2"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.3"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 4.1.2: direct native D30 connect stages, calibration and last-label reserve"
+          Write-Host "Applied 4.1.3: D30 keepalive every 2 minutes and silent auto reconnect every 30 seconds"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -78,8 +78,8 @@ jobs:
         run: |
           python -m compileall -q python_app\phomemo_studio python_app\tests
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
-          python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'cancel_pending_connection'); p.close(); print('Native BLE wrapper smoke OK')"
-          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); assert w.usable_labels()==21; w.roll_remaining.setValue(1); assert w.usable_labels()==0; assert any(b.text()=='Calibrar D30 / rollo' for b in w.findChildren(QPushButton)); assert any(b.text()=='Calibrar' for b in w.findChildren(QPushButton)); w.close(); print('UI roll reserve + calibration smoke OK')"
+          python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'cancel_pending_connection'); assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper keepalive smoke OK')"
+          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); assert w.usable_labels()==21; assert w._maintenance_timer.interval()==30000; assert hasattr(w,'_maintain_connection'); assert any(b.text()=='Calibrar D30 / rollo' for b in w.findChildren(QPushButton)); w.close(); print('UI keepalive + roll reserve + calibration smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -142,6 +142,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.2: conexión D30 nativa más directa y visible por etapas, sin depender del aviso Agregar un dispositivo de Windows. Restaura la calibración D30 con el protocolo usado por la app anterior. El conteo de rollo reserva siempre la última etiqueta física: por ejemplo, 22 restantes equivalen a 21 utilizables."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.3: mantiene activa la D30 con un heartbeat Bluetooth liviano cada 2 minutos para evitar el reposo tras varios minutos sin uso. Con Reconexión automática activada, la app comprueba el enlace cada 30 segundos y vuelve a conectar silenciosamente usando la última dirección conocida si Windows corta la sesión. Conserva calibración y la reserva de la última etiqueta física del rollo."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
