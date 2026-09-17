@@ -1,0 +1,36 @@
+name: Dev extract Python source
+
+on:
+  push:
+    branches: [ redesign-4.2.0 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: redesign-4.2.0
+      - name: Extract archived Python source
+        shell: bash
+        run: |
+          rm -rf dev_source python_src_v4.zip
+          cat python_src_v4.b64.part* | tr -d '\r\n' | base64 -d > python_src_v4.zip
+          mkdir -p dev_source
+          unzip -q python_src_v4.zip -d dev_source
+      - name: Commit extracted source for development
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev_source
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Dev: extract archived Python source"
+            git push origin HEAD:redesign-4.2.0
+          fi
