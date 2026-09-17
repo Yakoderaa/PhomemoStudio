@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.1.0 app enhancements
+      - name: Apply 5.2.0 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -49,11 +49,12 @@ jobs:
           python python_hotfix_native\ui_patch.py
           python python_hotfix_native\studio_pro_patch.py
           python python_hotfix_native\v51_redesign_patch.py
+          python python_hotfix_native\v52_polish_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.1.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.2.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.1.0: complete from-scratch workspace redesign, recoverable panels, scrollable inspector and categorized shape library"
+          Write-Host "Applied 5.2.0: modern plus/minus steppers and large open-licensed icon library"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -90,8 +91,9 @@ jobs:
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
           python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
+          python -c "import qtawesome as qta; inst=qta._instance(); n=sum(len(inst.charmap.get(p,{})) for p in ('fa6s','mdi6','ph','ri')); assert n>5000; print('Open icon catalog',n)"
           python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; print('EXE icon embedded in spec')"
-          python -c "from PySide6.QtWidgets import QApplication,QFrame,QScrollArea; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); assert rail and drawer and inspector and scroll; w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; assert len(w._v51_drawer_pages)==5; w.close(); print('V5.1 redesign + recoverable panels + roll accounting smoke OK')"
+          python -c "from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==2; spins=w.findChildren((QSpinBox,QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.2 polish + library + roll accounting smoke OK')"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -144,7 +146,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Redesign
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-LibraryPolish
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -161,6 +163,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.1.0: rediseño completo de la interfaz desde cero. Nuevo workspace con barra lateral permanente, panel de biblioteca recuperable, lienzo central amplio, inspector derecho desplazable sin superposiciones y menús reorganizados. La biblioteca de formas queda agrupada por categorías, se puede cerrar y volver a abrir siempre desde la barra lateral o Ver > Biblioteca de formas. Se mantienen las fuentes de Windows/Adobe, el actualizador automático, el icono transparente, la calibración sin descontar etiquetas y la reconexión Bluetooth silenciosa."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.2.0: controles numéricos modernizados con stepper +/- integrado y mayor claridad visual. La biblioteca de Formas ahora suma una pestaña de Iconos con miles de recursos de licencia abierta provenientes de Font Awesome, Material Design, Phosphor y Remix, con buscador, categorías, filtros por colección y carga paginada. Se conservan el rediseño V5.1, fuentes Windows/Adobe, actualizador automático, calibración sin descuento y Bluetooth silencioso."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
