@@ -3,9 +3,8 @@ from __future__ import annotations
 from functools import partial
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QComboBox, QDoubleSpinBox, QFrame, QGraphicsItem,
+    QAbstractSpinBox, QComboBox, QDoubleSpinBox, QGraphicsItem,
     QGraphicsPixmapItem, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSpinBox, QTabWidget, QToolButton, QVBoxLayout,
     QWidget,
@@ -192,10 +191,8 @@ def _build_open_library(window):
                 if not _matches_category(name, selected_category):
                     continue
                 normalized = _norm(name)
-                if query_terms and not all(any(term in normalized for term in [q]) for q in query_terms[:1]):
-                    # First term is mandatory; aliases are OR-expansions for discoverability.
-                    if not any(term in normalized for term in query_terms):
-                        continue
+                if query_terms and not any(term in normalized for term in query_terms):
+                    continue
                 matches.append((prefix, label, name))
         return matches
 
@@ -266,8 +263,12 @@ def _install_library_tabs(window):
     old_layout.addWidget(tabs)
 
 
+def _all_spinboxes(window):
+    return list(window.findChildren(QSpinBox)) + list(window.findChildren(QDoubleSpinBox))
+
+
 def _modernize_numeric_controls(window):
-    for spin in window.findChildren((QSpinBox, QDoubleSpinBox)):
+    for spin in _all_spinboxes(window):
         try:
             spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
             spin.setProperty("modernStepper", True)
