@@ -32,16 +32,26 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply Python 4.0.1 BLE hotfixes
+      - name: Apply Python BLE hotfixes
         shell: pwsh
         run: |
           Copy-Item python_hotfix\printer.py python_app\phomemo_studio\printer.py -Force
           Copy-Item python_hotfix\test_printer.py python_app\tests\test_printer.py -Force
+          Copy-Item python_hotfix_printer_402.py python_app\phomemo_studio\ble402.py -Force
+
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.0.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.0.2"')
+          $init += [Environment]::NewLine + 'from . import ble402  # noqa: F401' + [Environment]::NewLine
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied robust active BLE scan + GATT probe fallback for D30"
+
+          $specPath = "python_app\PhomemoStudio.spec"
+          $spec = Get-Content $specPath -Raw
+          $old = "hiddenimports=['bleak.backends.winrt','bleak.backends.winrt.client','bleak.backends.winrt.scanner']"
+          $new = "hiddenimports=['bleak.backends.winrt','bleak.backends.winrt.client','bleak.backends.winrt.scanner','winrt.windows.devices.bluetooth','winrt.windows.devices.enumeration']"
+          $spec = $spec.Replace($old, $new)
+          Set-Content -Path $specPath -Value $spec -Encoding utf8 -NoNewline
+          Write-Host "Applied BLE 4.0.2: advertisement scan + native Windows DeviceInformation fallback"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -72,6 +82,7 @@ jobs:
         run: |
           python -m compileall -q python_app\phomemo_studio python_app\tests
           pytest -q python_app\tests
+          python -c "from phomemo_studio.ble402 import _format_bt_address; assert _format_bt_address(0xA1B2C3D4E5F6)=='A1:B2:C3:D4:E5:F6'; print('BLE fallback smoke OK')"
           python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); assert w.windowTitle().startswith('Phomemo Studio'); w.close(); print('UI smoke OK')"
 
       - name: Read version
@@ -118,6 +129,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.1: corrige la detección Bluetooth de la Phomemo D30 en Windows. El escaneo ahora es activo y conserva respuestas de anuncio tardías; si la D30 aparece sin nombre o sin UUID, la app verifica de forma segura el perfil GATT de los dispositivos cercanos antes de descartarla. También agrega diagnósticos de escaneo más útiles."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.0.2: agrega un segundo camino de detección Bluetooth nativo de Windows. Si el escaneo por anuncios BLE devuelve cero dispositivos, la app enumera el inventario Bluetooth LE de Windows con DeviceInformation/BluetoothLEDevice y prueba el perfil GATT de los candidatos, evitando confundir 'cero anuncios' con una impresora ocupada."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
