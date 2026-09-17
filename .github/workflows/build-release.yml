@@ -2,7 +2,7 @@ name: Build Python Windows installer and release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, redesign-4.2.0 ]
   workflow_dispatch:
 
 permissions:
@@ -37,21 +37,31 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 4.1.6 app hotfixes
+      - name: Apply Bluetooth reliability fixes
         shell: pwsh
         run: |
           python python_hotfix_native\stale_gatt_patch.py
           python python_hotfix_native\silent_reconnect_patch.py
           Copy-Item python_hotfix_native\printer.py python_app\phomemo_studio\printer.py -Force
           Copy-Item python_hotfix_native\installer.iss python_app\installer.iss -Force
-          python python_hotfix_native\ui_patch.py
+
+      - name: Apply Phomemo Studio 4.2 editor
+        shell: pwsh
+        run: |
+          Copy-Item python_hotfix_native\v420\ui.py python_app\phomemo_studio\ui.py -Force
+          Copy-Item python_hotfix_native\v420\core.py python_app\phomemo_studio\core.py -Force
+          Copy-Item python_hotfix_native\v420\render.py python_app\phomemo_studio\render.py -Force
+          Copy-Item python_hotfix_native\v420\updater.py python_app\phomemo_studio\updater.py -Force
+          Copy-Item python_hotfix_native\v420\main.py python_app\phomemo_studio\main.py -Force
+          Copy-Item python_hotfix_native\v420\shapes.py python_app\phomemo_studio\shapes.py -Force
+          Copy-Item python_hotfix_native\v420\PhomemoStudio.spec python_app\PhomemoStudio.spec -Force
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.1.6"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "4.2.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 4.1.6: automatic reconnect uses only the saved D30 address and never launches Bluetooth discovery"
+          Write-Host "Applied 4.2.0: modern editor, full system font catalog, shape library, automatic updater and refreshed Windows icon"
 
-      - name: Restore transparent Sr Gato assets
+      - name: Restore Sr Gato source asset
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path python_app\assets | Out-Null
@@ -70,7 +80,9 @@ jobs:
       - name: Build transparent Windows icon
         shell: pwsh
         run: |
-          python -c "from PIL import Image; from pathlib import Path; p=Path('python_app/assets/sr-gato.png'); img=Image.open(p).convert('RGBA'); bbox=img.getchannel('A').getbbox(); img=img.crop(bbox) if bbox else img; side=max(img.size); pad=max(8,int(side*.06)); out=Image.new('RGBA',(side+pad*2,side+pad*2),(0,0,0,0)); out.alpha_composite(img,((out.width-img.width)//2,(out.height-img.height)//2)); out.save('python_app/assets/sr-gato.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]); print('alpha',out.getchannel('A').getextrema())"
+          python python_hotfix_native\v420\build_icon.py
+          if (-not (Test-Path python_app\assets\sr-gato.ico)) { throw "No se generó el icono transparente" }
+          if (-not (Test-Path python_app\assets\sr-gato-transparent.png)) { throw "No se generó el PNG transparente" }
 
       - name: Run Python tests
         shell: pwsh
@@ -82,7 +94,8 @@ jobs:
           pytest -q python_app\tests --ignore=python_app\tests\test_printer.py
           python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from pathlib import Path; p=Path('python_app/phomemo_studio/printer.py').read_text(encoding='utf-8'); b=Path('native_bridge/PhomemoBleBridge/Program.cs').read_text(encoding='utf-8'); assert '\"allowDiscovery\": False' in p; assert '\"allowDiscovery\": True' in p; assert 'ConnectAsync(preferredAddress, false)' in b; assert 'if (!allowDiscovery)' in b; print('Silent reconnect policy present')"
-          python -c "from PySide6.QtWidgets import QApplication,QPushButton; from phomemo_studio.ui import MainWindow; a=QApplication([]); w=MainWindow(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('UI roll accounting smoke OK')"
+          python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.ui import MainWindow; from phomemo_studio.shapes import SHAPES; a=QApplication([]); w=MainWindow(); assert len(SHAPES)>=30; assert w.prop_font.count()>5; assert w._maintenance_timer.interval()==30000; w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; assert w.update_btn.text(); w.close(); print('Modern UI + fonts + shapes + roll accounting smoke OK')"
+          python -c "from PySide6.QtWidgets import QApplication; from phomemo_studio.core import Element; from phomemo_studio.render import render_label; a=QApplication.instance() or QApplication([]); img=render_label([Element('shape',5,5,60,40,shape='heart',fill=True),Element('text',70,5,120,35,text='Studio',font='Segoe UI',font_size=14)],40,12); assert img.size[0]>0 and img.size[1]>0; print('Qt render + shape smoke OK',img.size)"
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -129,7 +142,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Hybrid
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Redesign
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -145,6 +158,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.1.6: la reconexión automática de la D30 ahora es completamente silenciosa. Si ya conocemos su dirección Bluetooth, los intentos automáticos solo reconectan directamente a esa dirección y nunca ejecutan búsqueda general, inventario Bluetooth ni escaneo activo. Esas búsquedas quedan reservadas al botón manual Conectar D30. Esto evita que Phomemo Studio provoque el aviso de Windows 'Agregar un dispositivo / Pulse para configurar su D30'. Conserva la validación GATT de V4.1.5 y la calibración sin descuento de etiquetas."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V4.2.0: rediseño completo del editor con una interfaz moderna y más clara; catálogo amplio y buscable de formas geométricas originales; selector con todas las familias de fuentes expuestas por Windows y carga adicional de fuentes locales/Adobe Creative Cloud; renderizado con Qt para que la fuente elegida también se respete al imprimir; actualizador de un clic que descarga, verifica, inicia la instalación y cierra la app automáticamente; icono de Windows regenerado con transparencia real y AppUserModelID propio para corregir el fondo blanco en la barra de tareas. Conserva la conexión D30 estable, la reconexión silenciosa y la calibración sin descontar etiquetas."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
