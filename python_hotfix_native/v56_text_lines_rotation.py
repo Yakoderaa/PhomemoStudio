@@ -3,13 +3,13 @@ from __future__ import annotations
 import math
 from functools import partial
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QSize, QTimer, Qt
+from PySide6.QtCore import QObject, QPointF, QRectF, QSize, QTimer, Qt, QStringListModel
 from PySide6.QtGui import (
-    QColor, QBrush, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap,
+    QColor, QBrush, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPen, QPixmap,
     QTextBlockFormat, QTextCursor
 )
 from PySide6.QtWidgets import (
-    QAbstractButton, QComboBox, QDoubleSpinBox, QFormLayout, QGraphicsEllipseItem,
+    QAbstractButton, QComboBox, QCompleter, QDoubleSpinBox, QFormLayout, QFrame, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGridLayout, QLabel,
     QLineEdit, QPlainTextEdit, QScrollArea, QSpinBox, QTabWidget, QTextEdit,
     QToolButton, QVBoxLayout, QWidget
@@ -37,6 +37,149 @@ def _schedule(window):
 # ---------------------------------------------------------------------------
 # Live text inspector binding
 # ---------------------------------------------------------------------------
+
+def _install_native_text_card(window):
+    inspector = getattr(window, "_v51_inspector", None)
+    if inspector is None or getattr(window, "_v56_text_fields", None):
+        return
+
+    # Hide the legacy Text card. It visually existed but its reused callbacks no
+    # longer addressed the currently selected graphics item reliably.
+    for label in inspector.findChildren(QLabel):
+        if _norm(label.text()) == "texto":
+            parent = label.parentWidget()
+            if isinstance(parent, QFrame):
+                parent.hide()
+                break
+
+    scroll = inspector.findChild(QScrollArea, "v51InspectorScroll")
+    body = scroll.widget() if scroll is not None else None
+    body_layout = body.layout() if body is not None else None
+    if body_layout is None:
+        return
+
+    card = QFrame()
+    card.setObjectName("v56LiveTextCard")
+    card.setProperty("sectionCard", True)
+    outer = QVBoxLayout(card)
+    outer.setContentsMargins(14, 14, 14, 14)
+    outer.setSpacing(10)
+
+    title = QLabel("Texto")
+    title.setProperty("sectionTitle", True)
+    outer.addWidget(title)
+
+    desc = QLabel("Editá directamente el texto seleccionado. Los cambios se ven en el lienzo en tiempo real.")
+    desc.setWordWrap(True)
+    desc.setProperty("muted", True)
+    outer.addWidget(desc)
+
+    form = QFormLayout()
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setHorizontalSpacing(12)
+    form.setVerticalSpacing(9)
+    form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
+    content = QPlainTextEdit()
+    content.setObjectName("v56TextContent")
+    content.setMaximumHeight(76)
+    content.setPlaceholderText("Contenido del texto")
+    form.addRow("Contenido", content)
+
+    font = QComboBox()
+    font.setObjectName("v56TextFont")
+    font.setEditable(True)
+    font.setInsertPolicy(QComboBox.NoInsert)
+    font.setMinimumContentsLength(12)
+    font.setMinimumHeight(34)
+    font.lineEdit().setPlaceholderText("Escribí para buscar una fuente…")
+    font.lineEdit().setClearButtonEnabled(False)
+    families = sorted(QFontDatabase.families(), key=lambda x: x.casefold())
+    font.addItems(families)
+    model = QStringListModel(families, font)
+    completer = QCompleter(model, font)
+    completer.setCaseSensitivity(Qt.CaseInsensitive)
+    completer.setCompletionMode(QCompleter.PopupCompletion)
+    completer.setFilterMode(Qt.MatchContains)
+    completer.setMaxVisibleItems(18)
+    font.setCompleter(completer)
+    font._v56_model = model
+    font._v56_completer = completer
+    font.lineEdit().textEdited.connect(lambda _="": completer.complete())
+    form.addRow("Fuente", font)
+
+    size = QDoubleSpinBox()
+    size.setObjectName("v56TextSize")
+    size.setRange(1.0, 500.0)
+    size.setDecimals(1)
+    size.setValue(12.0)
+    size.setSuffix(" pt")
+    form.addRow("Tamaño", size)
+
+    weight = QComboBox()
+    weight.setObjectName("v56TextWeight")
+    for name, value in [
+        ("Fina", 300), ("Normal", 400), ("Media", 500),
+        ("Seminegrita", 600), ("Negrita", 700), ("Extra negrita", 800), ("Black", 900)
+    ]:
+        weight.addItem(name, value)
+    form.addRow("Grosor", weight)
+
+    align = QComboBox()
+    align.setObjectName("v56TextAlignment")
+    align.addItems(["Izquierda", "Centro", "Derecha", "Justificado"])
+    form.addRow("Alineación", align)
+
+    tracking = QDoubleSpinBox()
+    tracking.setObjectName("v56TextTracking")
+    tracking.setRange(-20.0, 100.0)
+    tracking.setDecimals(1)
+    tracking.setValue(0.0)
+    tracking.setSuffix(" px")
+    form.addRow("Espaciado", tracking)
+
+    line_height = QDoubleSpinBox()
+    line_height.setObjectName("v56TextLineHeight")
+    line_height.setRange(0.5, 4.0)
+    line_height.setDecimals(2)
+    line_height.setSingleStep(0.05)
+    line_height.setValue(1.0)
+    line_height.setSuffix(" ×")
+    form.addRow("Interlineado", line_height)
+
+    outer.addLayout(form)
+    body_layout.insertWidget(0, card)
+
+    window._v56_text_fields = {
+        "contenido": content,
+        "fuente": font,
+        "tamano": size,
+        "grosor": weight,
+        "alineacion": align,
+        "espaciado": tracking,
+        "interlineado": line_height,
+    }
+
+    def refresh_family_list():
+        latest = sorted(QFontDatabase.families(), key=lambda x: x.casefold())
+        previous = [font.itemText(i) for i in range(font.count())]
+        if latest == previous:
+            return
+        current = font.currentText()
+        font.blockSignals(True)
+        font.clear()
+        font.addItems(latest)
+        font.setCurrentText(current)
+        font.blockSignals(False)
+        model.setStringList(latest)
+
+    timer = QTimer(window)
+    timer.setInterval(5000)
+    timer.timeout.connect(refresh_family_list)
+    timer.start()
+    window._v56_font_refresh_timer = timer
+
+
 
 def _form_fields(window):
     inspector = getattr(window, "_v51_inspector", None)
@@ -170,7 +313,7 @@ class TextInspectorBinder(QObject):
         super().__init__(window)
         self.window = window
         self.view = _find_canvas(window)
-        self.fields = _form_fields(window)
+        self.fields = getattr(window, "_v56_text_fields", None) or _form_fields(window)
         self._syncing = False
         self._connections = []
         if self.view is None or self.view.scene() is None:
@@ -585,6 +728,7 @@ def _install_rotation(window):
 
 
 def enhance(window):
+    _install_native_text_card(window)
     window._v56_text_binder = TextInspectorBinder(window)
     _install_lines_library(window)
     _install_rotation(window)
