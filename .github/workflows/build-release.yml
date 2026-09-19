@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.7.0 app enhancements
+      - name: Apply 5.8.0 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -56,11 +56,12 @@ jobs:
           python python_hotfix_native\v55_transform_handles_patch.py
           python python_hotfix_native\v56_text_lines_rotation_patch.py
           python python_hotfix_native\v57_undo_redo_patch.py
+          python python_hotfix_native\v58_text_clipboard_layers_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.7.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.8.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.7.0: undo/redo, reliable updater relaunch and explicit text alignment controls"
+          Write-Host "Applied 5.8.0: text formatting fixes, clipboard, fixed line thickness and lockable layers"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -104,6 +105,7 @@ jobs:
           python python_hotfix_native\v55_smoke.py
           python python_hotfix_native\v56_smoke.py
           python python_hotfix_native\v57_smoke.py
+          python python_hotfix_native\v58_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -156,7 +158,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-UndoUpdaterAlignment
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-TextLayersClipboard
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -173,6 +175,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.7.0: agrega Deshacer global con Ctrl+Z y Rehacer con Ctrl+Y o Ctrl+Shift+Z, con historial del lienzo para inserciones, movimientos, cambios de tamaño, rotaciones, texto y otros cambios serializables. Suma menú Editar con Deshacer/Rehacer. Refuerza el actualizador: usa la ruta real del ejecutable, espera o cierra únicamente el proceso viejo si bloquea la actualización, ejecuta el instalador silencioso, comprueba el código de salida y relanza Phomemo Studio con doble mecanismo de respaldo. En Texto quedan visibles los controles Izquierda, Centro, Derecha y Justificado, aplicados en tiempo real al texto seleccionado. Se mantienen líneas, rotación libre, autosave, biblioteca persistente de imágenes, fuentes dinámicas y Bluetooth."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.8.0: corrige Grosor, Espaciado, Interlineado y Alineación para que se apliquen en vivo a todo el documento de texto seleccionado, incluyendo todos sus bloques. Agrega Ctrl+C para copiar, Ctrl+V para pegar y Ctrl+B como Pegar detrás al estilo Illustrator. Las líneas ahora conservan su grosor al cambiar el largo y suman control de Grosor en Propiedades. Se incorpora un panel Capas con búsqueda y bloqueo/desbloqueo por elemento o global; los elementos bloqueados siguen visibles e imprimibles pero no se pueden mover ni seleccionar accidentalmente, y el estado de bloqueo se guarda en autosave. Se conserva Ctrl+Z/Rehacer, rotación libre, biblioteca de imágenes y actualizador reforzado."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
