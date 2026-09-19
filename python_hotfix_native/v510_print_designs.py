@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QAction, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+    QAction, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget
 )
 
