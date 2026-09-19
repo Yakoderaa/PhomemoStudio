@@ -864,7 +864,14 @@ def redesign(window):
     for toolbar in window.findChildren(QToolBar):
         toolbar.hide()
 
-    old_central = window.centralWidget()
+    # Take ownership of the legacy central widget before installing the new UI.
+    # QMainWindow.setCentralWidget() deletes the previous central widget; several
+    # printer/state controls (including QSlider instances) are still used by the
+    # backend even though they are not shown in the modern layout.
+    old_central = window.takeCentralWidget()
+    if old_central is not None:
+        old_central.setParent(window)
+        old_central.hide()
     canvas = _find_canvas(window)
     if canvas is None:
         return
