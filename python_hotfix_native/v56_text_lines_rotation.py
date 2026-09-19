@@ -42,27 +42,36 @@ def _form_fields(window):
     inspector = getattr(window, "_v51_inspector", None)
     if inspector is None:
         return {}
+
+    wanted = {
+        "contenido", "fuente", "tamano", "grosor", "peso",
+        "alineacion", "espaciado", "tracking", "interlineado"
+    }
     result = {}
-    for label in inspector.findChildren(QLabel):
-        key = _norm(label.text())
-        if key not in {
-            "contenido", "fuente", "tamano", "grosor", "peso",
-            "alineacion", "espaciado", "tracking", "interlineado"
-        }:
-            continue
-        parent = label.parentWidget()
-        while parent is not None and parent is not inspector:
-            layout = parent.layout()
-            if isinstance(layout, QFormLayout):
-                for row in range(layout.rowCount()):
-                    li = layout.itemAt(row, QFormLayout.LabelRole)
-                    fi = layout.itemAt(row, QFormLayout.FieldRole)
-                    if li and li.widget() is label and fi and fi.widget() is not None:
-                        result[key] = fi.widget()
-                        break
-            if key in result:
-                break
-            parent = parent.parentWidget()
+
+    def walk_layout(layout):
+        if layout is None:
+            return
+        if isinstance(layout, QFormLayout):
+            for row in range(layout.rowCount()):
+                li = layout.itemAt(row, QFormLayout.LabelRole)
+                fi = layout.itemAt(row, QFormLayout.FieldRole)
+                label = li.widget() if li else None
+                field = fi.widget() if fi else None
+                if isinstance(label, QLabel) and field is not None:
+                    key = _norm(label.text())
+                    if key in wanted and key not in result:
+                        result[key] = field
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            child_layout = item.layout()
+            child_widget = item.widget()
+            if child_layout is not None:
+                walk_layout(child_layout)
+            elif child_widget is not None and child_widget.layout() is not None:
+                walk_layout(child_widget.layout())
+
+    walk_layout(inspector.layout())
     return result
 
 
