@@ -412,6 +412,16 @@ def _install_image_library(window):
     window._v54_image_tabs = tabs
 
 
+def _enum_int(value, default=0):
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return int(value.value)
+        except Exception:
+            return int(default)
+
+
 def _color_to_data(color: QColor):
     return [color.red(), color.green(), color.blue(), color.alpha()]
 
@@ -427,7 +437,7 @@ def _pen_to_data(pen: QPen):
     return {
         "color": _color_to_data(pen.color()),
         "width": float(pen.widthF()),
-        "style": int(pen.style()),
+        "style": _enum_int(pen.style(), _enum_int(Qt.SolidLine)),
     }
 
 
@@ -435,20 +445,20 @@ def _pen_from_data(data) -> QPen:
     pen = QPen(_color_from_data((data or {}).get("color", [17, 24, 39, 255])))
     try:
         pen.setWidthF(float((data or {}).get("width", 1.0)))
-        pen.setStyle(Qt.PenStyle(int((data or {}).get("style", int(Qt.SolidLine)))))
+        pen.setStyle(Qt.PenStyle(int((data or {}).get("style", _enum_int(Qt.SolidLine)))))
     except Exception:
         pass
     return pen
 
 
 def _brush_to_data(brush: QBrush):
-    return {"color": _color_to_data(brush.color()), "style": int(brush.style())}
+    return {"color": _color_to_data(brush.color()), "style": _enum_int(brush.style(), _enum_int(Qt.SolidPattern))}
 
 
 def _brush_from_data(data) -> QBrush:
     brush = QBrush(_color_from_data((data or {}).get("color", [0, 0, 0, 255])))
     try:
-        brush.setStyle(Qt.BrushStyle(int((data or {}).get("style", int(Qt.SolidPattern)))))
+        brush.setStyle(Qt.BrushStyle(int((data or {}).get("style", _enum_int(Qt.SolidPattern)))))
     except Exception:
         pass
     return brush
@@ -487,7 +497,7 @@ def _path_to_data(path: QPainterPath):
     out = []
     for i in range(path.elementCount()):
         e = path.elementAt(i)
-        out.append([int(e.type), float(e.x), float(e.y)])
+        out.append([_enum_int(e.type), float(e.x), float(e.y)])
     return out
 
 
@@ -496,13 +506,13 @@ def _path_from_data(elements) -> QPainterPath:
     i = 0
     while i < len(elements):
         t, x, y = elements[i]
-        if int(t) == int(QPainterPath.MoveToElement):
+        if int(t) == _enum_int(QPainterPath.MoveToElement):
             p.moveTo(x, y)
             i += 1
-        elif int(t) == int(QPainterPath.LineToElement):
+        elif int(t) == _enum_int(QPainterPath.LineToElement):
             p.lineTo(x, y)
             i += 1
-        elif int(t) == int(QPainterPath.CurveToElement) and i + 2 < len(elements):
+        elif int(t) == _enum_int(QPainterPath.CurveToElement) and i + 2 < len(elements):
             _, x1, y1 = elements[i + 1]
             _, x2, y2 = elements[i + 2]
             p.cubicTo(x, y, x1, y1, x2, y2)
