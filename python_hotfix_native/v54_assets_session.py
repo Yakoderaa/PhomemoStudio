@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QTimer, QRectF
 from PySide6.QtGui import (
     QColor, QBrush, QFont, QImage, QImageReader, QPainterPath, QPen,
-    QPixmap, QPolygonF
+    QPixmap, QPolygonF, QTransform
 )
 from PySide6.QtWidgets import (
     QAbstractButton, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
@@ -471,6 +471,12 @@ def _common_item(item: QGraphicsItem):
         "z": float(item.zValue()),
         "rotation": float(item.rotation()),
         "scale": float(item.scale()),
+        "transform": [
+            float(item.transform().m11()), float(item.transform().m12()), float(item.transform().m13()),
+            float(item.transform().m21()), float(item.transform().m22()), float(item.transform().m23()),
+            float(item.transform().m31()), float(item.transform().m32()), float(item.transform().m33()),
+        ],
+        "transform_origin": [float(item.transformOriginPoint().x()), float(item.transformOriginPoint().y())],
         "opacity": float(item.opacity()),
         "visible": bool(item.isVisible()),
         "data_kind": item.data(ROLE_KIND),
@@ -484,6 +490,19 @@ def _apply_common(item: QGraphicsItem, data: dict):
     item.setZValue(float(data.get("z", 0)))
     item.setRotation(float(data.get("rotation", 0)))
     item.setScale(float(data.get("scale", 1)))
+    matrix = data.get("transform")
+    if isinstance(matrix, list) and len(matrix) == 9:
+        try:
+            item.setTransform(QTransform(*[float(v) for v in matrix]))
+        except Exception:
+            pass
+    origin = data.get("transform_origin")
+    if isinstance(origin, list) and len(origin) == 2:
+        try:
+            from PySide6.QtCore import QPointF
+            item.setTransformOriginPoint(QPointF(float(origin[0]), float(origin[1])))
+        except Exception:
+            pass
     item.setOpacity(float(data.get("opacity", 1)))
     item.setVisible(bool(data.get("visible", True)))
     item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsFocusable)
