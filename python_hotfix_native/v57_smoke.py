@@ -95,5 +95,33 @@ alignment.setCurrentText("Justificado")
 binder.apply("alineacion")
 assert text.textCursor().blockFormat().alignment() & Qt.AlignJustify
 
+# Live text updates must happen while the item remains selected.
+content = binder.fields["contenido"]
+content.setPlainText("Cambio en vivo")
+binder.apply("contenido")
+assert text.toPlainText() == "Cambio en vivo"
+assert text.isSelected()
+
+size = binder.fields["tamano"]
+size.setValue(31)
+binder.apply("tamano")
+assert abs(text.font().pointSizeF() - 31) < 0.1
+assert text.isSelected()
+
+# Clicking/switching to another object must release text focus/selection.
+text.setTextInteractionFlags(Qt.TextEditorInteraction)
+text.setFocus()
+other = QGraphicsRectItem(0, 0, 40, 30)
+other.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
+scene.addItem(other)
+selection_filter = getattr(w, "_v57_selection_filter", None)
+assert selection_filter is not None
+selection_filter.prepare_switch(other, Qt.NoModifier)
+other.setSelected(True)
+assert other.isSelected()
+assert not text.isSelected()
+assert not text.hasFocus()
+assert text.textInteractionFlags() == Qt.NoTextInteraction
+
 w.close()
-print("V5.7 undo/redo + visible text alignment smoke OK")
+print("V5.7 undo/redo + alignment + live text + exclusive selection smoke OK")
