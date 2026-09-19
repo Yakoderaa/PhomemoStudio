@@ -7,8 +7,8 @@ root = tempfile.mkdtemp(prefix="phomemo-v54-")
 os.environ["PHOMEMO_STUDIO_DATA_DIR"] = root
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsPixmapItem, QGraphicsTextItem, QTabWidget
+from PySide6.QtGui import QColor, QImage, QPainterPath, QBrush, QPen
+from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsTextItem, QTabWidget
 
 app = QApplication.instance() or QApplication([])
 
@@ -44,6 +44,18 @@ text.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
 text.setPos(22.0, 33.0)
 view.scene().addItem(text)
 
+path = QPainterPath()
+path.moveTo(0, 0)
+path.cubicTo(20, 5, 30, 40, 55, 60)
+path.lineTo(4, 70)
+path.closeSubpath()
+vector = QGraphicsPathItem(path)
+vector.setPen(QPen(QColor("#111111"), 2))
+vector.setBrush(QBrush(QColor("#dddddd")))
+vector.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
+vector.setPos(70.0, 80.0)
+view.scene().addItem(vector)
+
 assert save_session(w)
 assert _session_path().exists()
 
@@ -59,6 +71,7 @@ assert restored_images and not restored_images[0].pixmap().isNull()
 assert abs(restored_images[0].pos().x() - 123.0) < 0.01
 assert abs(restored_images[0].rotation() - 17.0) < 0.01
 assert restored_text
+assert any(isinstance(i, QGraphicsPathItem) for i in view.scene().items())
 assert getattr(w, "_v54_save_timer").isSingleShot()
 assert getattr(w, "_v54_periodic_timer").isActive()
 
