@@ -413,6 +413,16 @@ class TextInspectorBinder(QObject):
                                 pass
                         if found >= 0:
                             widget.setCurrentIndex(found)
+                elif key == "alineacion" and isinstance(widget, QComboBox):
+                    alignment = item.textCursor().blockFormat().alignment()
+                    if alignment & Qt.AlignHCenter:
+                        widget.setCurrentText("Centro")
+                    elif alignment & Qt.AlignRight:
+                        widget.setCurrentText("Derecha")
+                    elif alignment & Qt.AlignJustify:
+                        widget.setCurrentText("Justificado")
+                    else:
+                        widget.setCurrentText("Izquierda")
                 elif key in ("espaciado", "tracking") and isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                     widget.setValue(float(font.letterSpacing()))
         finally:
