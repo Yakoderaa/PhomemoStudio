@@ -338,6 +338,20 @@ def _editor_text(widget):
     return None
 
 
+def _clear_text_selection(item: QGraphicsTextItem, move_to_end=False):
+    """Remove the blue internal text selection without changing the artwork."""
+    try:
+        cursor = item.textCursor()
+        if move_to_end:
+            cursor.movePosition(QTextCursor.End)
+        else:
+            cursor.clearSelection()
+        item.setTextCursor(cursor)
+        item.clearFocus()
+    except Exception:
+        pass
+
+
 def _font_weight_from_widget(widget) -> int:
     if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
         value = int(widget.value())
@@ -381,6 +395,7 @@ def _apply_alignment(item: QGraphicsTextItem, text: str):
     fmt = QTextBlockFormat()
     fmt.setAlignment(alignment)
     cursor.mergeBlockFormat(fmt)
+    cursor.clearSelection()
     item.setTextCursor(cursor)
 
 
@@ -397,6 +412,7 @@ def _apply_line_height(item: QGraphicsTextItem, value):
     fmt = QTextBlockFormat()
     fmt.setLineHeight(percent, QTextBlockFormat.ProportionalHeight)
     cursor.mergeBlockFormat(fmt)
+    cursor.clearSelection()
     item.setTextCursor(cursor)
 
 
@@ -437,11 +453,25 @@ class TextInspectorBinder(QObject):
 
     def sync_from_selection(self):
         item = _selected_text(self.window)
+
+        # A QGraphicsTextItem can keep an internal QTextCursor selection/focus
+        # after another graphics item is selected. That produces the blue
+        # highlight seen on the canvas even though the text item is no longer
+        # the active object. Clear it immediately on every selection change.
+        if self.view is not None and self.view.scene() is not None:
+            for text_item in self.view.scene().items():
+                if isinstance(text_item, QGraphicsTextItem) and text_item is not item:
+                    _clear_text_selection(text_item)
+
         enabled = item is not None
         for widget in self.fields.values():
             widget.setEnabled(enabled)
         if item is None:
             return
+
+        # The properties panel edits the graphics item, not an internal text
+        # selection. Keep the canvas clean while controls remain fully live.
+        _clear_text_selection(item)
         self._syncing = True
         try:
             font = item.font()
@@ -506,6 +536,8 @@ class TextInspectorBinder(QObject):
                     cursor = item.textCursor()
                     cursor.select(QTextCursor.Document)
                     cursor.mergeCharFormat(fmt)
+                    cursor.clearSelection()
+                    cursor.movePosition(QTextCursor.End)
                     item.setTextCursor(cursor)
 
             elif key == "fuente" and isinstance(widget, QComboBox):
