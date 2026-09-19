@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.4.0 app enhancements
+      - name: Apply 5.5.0 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -53,11 +53,12 @@ jobs:
           python python_hotfix_native\v52_polish_patch.py
           python python_hotfix_native\v53_fonts_library_patch.py
           python python_hotfix_native\v54_assets_session_patch.py
+          python python_hotfix_native\v55_transform_handles_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.4.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.5.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.4.0: persistent image library, reliable image rendering and autosave/restore session"
+          Write-Host "Applied 5.5.0: Illustrator-style resize handles with Shift/Alt modifiers for all elements"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -98,6 +99,7 @@ jobs:
           python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; u=Path('python_app/phomemo_studio/studio_pro.py').read_text(encoding='utf-8'); assert 'PhomemoStudio-update.ps1' in u and 'installer exit code' in u and 'relaunching app' in u; iss=Path('python_app/installer.iss').read_text(encoding='utf-8'); assert 'skipifnotsilent' not in iss; print('Updater handoff/install/relaunch smoke OK')"
           python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()==3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None and c.lineEdit() is not None and not c.lineEdit().isClearButtonEnabled() for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.2 UI + clean font selector + library + roll accounting smoke OK')"
           python python_hotfix_native\v54_smoke.py
+          python python_hotfix_native\v55_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -150,7 +152,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-AssetsAutosave
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-TransformHandles
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -167,6 +169,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.4.0: corrige la importación de imágenes para que PNG, JPG, WebP, BMP y SVG se rendericen correctamente y agrega una biblioteca persistente de imágenes importadas con miniaturas y reutilización directa en el lienzo. Los recursos se copian a AppData para no depender del archivo original. También incorpora guardado automático de sesión: textos, imágenes, formas compatibles, posición, escala, rotación, ajustes del documento y estado de paneles se guardan durante el trabajo y se restauran al volver a abrir la aplicación. Se conserva el actualizador automático robusto, fuentes dinámicas, biblioteca ampliada y Bluetooth."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.5.0: agrega un cuadro de transformación tipo Illustrator para todos los elementos seleccionables del lienzo. Incluye 8 tiradores: esquinas para escalar ancho/alto y centros laterales para modificar un solo eje. Shift mantiene proporciones, Alt escala desde el centro y Shift+Alt mantiene proporciones desde el centro. Los tiradores usan cursores contextuales, siguen posición/rotación del elemento, sus transformaciones se guardan en el autosave y se restauran al abrir la app. El marco de edición se oculta automáticamente al exportar e imprimir para no aparecer en el resultado. Se conservan biblioteca de imágenes persistente, autosave, actualizador automático, fuentes dinámicas y Bluetooth."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
