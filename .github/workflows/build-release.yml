@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.9.1 app enhancements
+      - name: Apply 5.10.0 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -59,11 +59,12 @@ jobs:
           python python_hotfix_native\v58_text_clipboard_layers_patch.py
           python python_hotfix_native\v59_properties_line_resize_patch.py
           python python_hotfix_native\v591_rotated_line_resize_patch.py
+          python python_hotfix_native\v510_print_designs_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.9.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.0"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.9.1: line endpoint resize works at any rotation"
+          Write-Host "Applied 5.10.0: stable print controls and persistent Designs library"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -110,6 +111,7 @@ jobs:
           python python_hotfix_native\v58_smoke.py
           python python_hotfix_native\v59_smoke.py
           python python_hotfix_native\v591_smoke.py
+          python python_hotfix_native\v510_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -162,7 +164,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-RotatedLineResize
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-PrintDesigns
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -179,6 +181,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.9.1: corrige el redimensionado de líneas rotadas. Los dos extremos de una línea ahora funcionan como tiradores de longitud reales en las coordenadas locales del objeto, por lo que se puede alargar o acortar a 0°, 45°, 90° o cualquier ángulo. El grosor permanece intacto y sigue controlándose exclusivamente desde Propiedades > Línea > Grosor. Se conservan el botón Propiedades permanente, capas, historial, texto en vivo y actualizador."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.0: corrige el error de impresión Internal C++ object (QSlider) already deleted preservando los controles internos heredados que el backend aún necesita aunque la UI moderna los mantenga ocultos. Reemplaza además el guardado heredado de Diseños por una biblioteca persistente real: Guardar diseño pide nombre, genera miniatura, guarda el contenido editable y ajustes, aparece inmediatamente en Diseños, puede abrirse/eliminarse y permanece disponible al reiniciar la aplicación. Se conservan líneas redimensionables a cualquier ángulo, capas, historial, texto en vivo y actualizador."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
