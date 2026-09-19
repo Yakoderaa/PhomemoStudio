@@ -162,9 +162,10 @@ def _apply_text_property(window, binder, key: str):
     elif key == "interlineado" and isinstance(widget, QDoubleSpinBox):
         multiplier = max(0.5, min(4.0, float(widget.value())))
         percent = multiplier * 100.0
+        line_type = getattr(QTextBlockFormat.ProportionalHeight, "value", QTextBlockFormat.ProportionalHeight)
         _for_each_block(
             item,
-            lambda fmt: fmt.setLineHeight(percent, QTextBlockFormat.ProportionalHeight),
+            lambda fmt: fmt.setLineHeight(percent, int(line_type)),
         )
 
     else:
