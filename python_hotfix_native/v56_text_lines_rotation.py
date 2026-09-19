@@ -558,6 +558,16 @@ def _install_rotation(window):
 
     controller._set_all_visible = set_all_visible
     controller.refresh_geometry = refresh_geometry
+    # The V5.5 timer was connected to the old bound refresh method. Rebind it
+    # so external-corner rotation controls follow items while they are moved.
+    try:
+        controller.timer.timeout.disconnect(original_refresh)
+    except Exception:
+        pass
+    try:
+        controller.timer.timeout.connect(refresh_geometry)
+    except Exception:
+        pass
     controller.begin_rotate = begin_rotate
     controller.rotate_to = rotate_to
     controller.end_rotate = end_rotate
