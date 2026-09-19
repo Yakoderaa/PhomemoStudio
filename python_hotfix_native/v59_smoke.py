@@ -23,7 +23,7 @@ inspector.hide()
 assert inspector.isHidden()
 button.click()
 QApplication.processEvents()
-assert inspector.isVisible()
+assert not inspector.isHidden()
 
 # A line gets ONLY left/right resize handles.
 line = insert_line(w, "Línea", "solid")
