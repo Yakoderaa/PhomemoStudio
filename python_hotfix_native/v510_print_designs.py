@@ -6,9 +6,9 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
+from PySide6.QtGui import QAction, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QAction, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget
 )
 
