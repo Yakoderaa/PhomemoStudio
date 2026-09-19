@@ -14,7 +14,7 @@ old = '''def _on_update_downloaded(window, path, error):
         QApplication.instance().quit()
     except Exception as exc: QMessageBox.warning(window,"Actualizaciones",f"Se descargó la actualización, pero no pude iniciar el instalador:\\n{exc}")
 '''
-new = r'''def _on_update_downloaded(window, path, error):
+new = r"""def _on_update_downloaded(window, path, error):
     window._studio_update_busy=False
     if error:
         window.statusBar().showMessage("Falló la descarga de la actualización",6000); QMessageBox.warning(window,"Actualizaciones",str(error)); return
@@ -75,7 +75,7 @@ try {
         QApplication.instance().quit()
     except Exception as exc:
         QMessageBox.warning(window,"Actualizaciones",f"Se descargó la actualización, pero no pude iniciar el actualizador:\n{exc}")
-'''
+"""
 if old not in s:
     raise SystemExit("Updater target block not found")
 s = s.replace(old, new)
