@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.10.0 app enhancements
+      - name: Apply 5.10.1 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -60,11 +60,12 @@ jobs:
           python python_hotfix_native\v59_properties_line_resize_patch.py
           python python_hotfix_native\v591_rotated_line_resize_patch.py
           python python_hotfix_native\v510_print_designs_patch.py
+          python python_hotfix_native\v5101_exact_print_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.0"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.1"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.10.0: stable print controls and persistent Designs library"
+          Write-Host "Applied 5.10.1: exact full-scene D30 print with correct landscape orientation"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -112,6 +113,7 @@ jobs:
           python python_hotfix_native\v59_smoke.py
           python python_hotfix_native\v591_smoke.py
           python python_hotfix_native\v510_smoke.py
+          python python_hotfix_native\v5101_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -164,7 +166,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-PrintDesigns
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-ExactPrint
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -181,6 +183,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.0: corrige el error de impresión Internal C++ object (QSlider) already deleted preservando los controles internos heredados que el backend aún necesita aunque la UI moderna los mantenga ocultos. Reemplaza además el guardado heredado de Diseños por una biblioteca persistente real: Guardar diseño pide nombre, genera miniatura, guarda el contenido editable y ajustes, aparece inmediatamente en Diseños, puede abrirse/eliminarse y permanece disponible al reiniciar la aplicación. Se conservan líneas redimensionables a cualquier ángulo, capas, historial, texto en vivo y actualizador."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.1: reemplaza el armado parcial de impresión por un render directo de la escena completa del lienzo, excluyendo únicamente controles de edición. Texto, imágenes PNG/SVG, iconos, líneas, marcos, rotaciones y escalas pasan al raster tal como se ven. Para etiquetas apaisadas, el raster se rota automáticamente antes de enviarlo a la D30 para que el lado corto quede sobre el cabezal térmico y el lado largo siga la dirección de avance, evitando la impresión a 90° y el recorte de contenido. Se mantiene la biblioteca persistente de Diseños y todas las funciones anteriores."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
