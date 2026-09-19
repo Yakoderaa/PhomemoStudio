@@ -4,7 +4,7 @@ import json
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QGraphicsItem, QMenu
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu
 
 from .studio_pro import _find_canvas
 from .v54_assets_session import _is_user_item, _restore_item, _serialize_item, save_session
@@ -36,6 +36,62 @@ def _capture(window):
 
 def _fingerprint(state) -> str:
     return json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+class _ExclusiveSelectionFilter(QObject):
+    """Keep canvas selection exclusive and release stale text edit focus."""
+
+    def __init__(self, window, view, parent=None):
+        super().__init__(parent)
+        self.window = window
+        self.view = view
+        self.scene = view.scene()
+
+    def _release_text(self, item):
+        if not isinstance(item, QGraphicsTextItem):
+            return
+        try:
+            cursor = item.textCursor()
+            cursor.clearSelection()
+            item.setTextCursor(cursor)
+        except Exception:
+            pass
+        try:
+            item.clearFocus()
+        except Exception:
+            pass
+        try:
+            item.setTextInteractionFlags(Qt.NoTextInteraction)
+        except Exception:
+            pass
+
+    def prepare_switch(self, target, modifiers):
+        if self.scene is None or target is None or target.data(OVERLAY_ROLE):
+            return
+
+        # Release every other text item's internal cursor/focus. This fixes the
+        # blue selection highlight that can otherwise remain after choosing a
+        # different image/shape/line.
+        for item in self.scene.items():
+            if isinstance(item, QGraphicsTextItem) and item is not target:
+                self._release_text(item)
+
+        # Normal click behaves like Illustrator: one active object. Ctrl/Shift
+        # keep Qt's multi-selection semantics available.
+        if not (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)):
+            for item in list(self.scene.selectedItems()):
+                if item is not target and not item.data(OVERLAY_ROLE):
+                    item.setSelected(False)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and getattr(event, "button", lambda: None)() == Qt.LeftButton:
+            try:
+                scene_pos = self.view.mapToScene(event.position().toPoint())
+                target = self.scene.itemAt(scene_pos, self.view.transform())
+                self.prepare_switch(target, event.modifiers())
+            except Exception:
+                pass
+        return False
 
 
 class _CanvasReleaseFilter(QObject):
@@ -84,9 +140,14 @@ class HistoryManager(QObject):
         if self.scene is not None:
             self.scene.changed.connect(self.schedule)
         if self.view is not None:
+            self.selection_filter = _ExclusiveSelectionFilter(window, self.view, self.view.viewport())
+            self.view.viewport().installEventFilter(self.selection_filter)
+            window._v57_selection_filter = self.selection_filter
+
             self.release_filter = _CanvasReleaseFilter(self, self.view.viewport())
             self.view.viewport().installEventFilter(self.release_filter)
         else:
+            self.selection_filter = None
             self.release_filter = None
 
         self._hook_transform_gestures()
