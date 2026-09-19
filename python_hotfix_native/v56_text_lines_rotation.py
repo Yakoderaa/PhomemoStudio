@@ -3,13 +3,13 @@ from __future__ import annotations
 import math
 from functools import partial
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QSize, QTimer, Qt, QStringListModel
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, QTimer, Qt, QStringListModel
 from PySide6.QtGui import (
     QColor, QBrush, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPen, QPixmap,
     QTextBlockFormat, QTextCursor
 )
 from PySide6.QtWidgets import (
-    QAbstractButton, QComboBox, QCompleter, QDoubleSpinBox, QFormLayout, QFrame, QGraphicsEllipseItem,
+    QApplication, QAbstractButton, QComboBox, QCompleter, QDoubleSpinBox, QFormLayout, QFrame, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGridLayout, QLabel,
     QLineEdit, QPlainTextEdit, QScrollArea, QSpinBox, QTabWidget, QTextEdit,
     QToolButton, QVBoxLayout, QWidget
@@ -32,6 +32,63 @@ def _schedule(window):
         _schedule_save(window)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Canvas selection cleanup
+# ---------------------------------------------------------------------------
+
+class CanvasSelectionFilter(QObject):
+    def __init__(self, window, view):
+        super().__init__(window)
+        self.window = window
+        self.view = view
+        self.scene = view.scene()
+        view.viewport().installEventFilter(self)
+
+    def _finish_old_text(self, target=None):
+        if self.scene is None:
+            return
+        for item in list(self.scene.items()):
+            if not isinstance(item, QGraphicsTextItem) or item is target:
+                continue
+            if item.hasFocus():
+                item.clearFocus()
+            # Do not leave an old text object in internal editing mode after
+            # switching to another object. It remains selectable/movable.
+            if item.textInteractionFlags() != Qt.NoTextInteraction:
+                item.setTextInteractionFlags(Qt.NoTextInteraction)
+
+    def prepare_switch(self, target, modifiers=Qt.NoModifier):
+        if self.scene is None:
+            return
+        multi = bool(modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+        if multi:
+            return
+        selected = [i for i in self.scene.selectedItems() if not i.data(OVERLAY_ROLE)]
+        if target is None:
+            self._finish_old_text(None)
+            self.scene.clearSelection()
+            self.scene.clearFocus()
+            return
+        if len(selected) != 1 or selected[0] is not target:
+            self._finish_old_text(target)
+            self.scene.clearSelection()
+            self.scene.clearFocus()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            try:
+                items = self.view.items(event.position().toPoint())
+                # Handles/rotation controls belong to the current selection and
+                # must not make it disappear when the user starts a transform.
+                if items and items[0].data(OVERLAY_ROLE):
+                    return False
+                target = next((i for i in items if not i.data(OVERLAY_ROLE)), None)
+                self.prepare_switch(target, event.modifiers())
+            except Exception:
+                pass
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -483,9 +540,24 @@ class TextInspectorBinder(QObject):
             elif key == "interlineado" and isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 _apply_line_height(item, widget.value())
 
+            # Force the text document and the graphics view to refresh now.
+            # This avoids the old behaviour where typography appeared to change
+            # only after leaving/re-entering the text object.
+            try:
+                document = item.document()
+                document.markContentsDirty(0, max(1, document.characterCount()))
+                document.adjustSize()
+            except Exception:
+                pass
             item.update()
             if item.scene() is not None:
+                item.scene().invalidate(item.sceneBoundingRect())
                 item.scene().update(item.sceneBoundingRect())
+            try:
+                self.view.viewport().update()
+            except Exception:
+                pass
+            QApplication.processEvents()
             controller = getattr(self.window, "_v55_transform_controller", None)
             if controller is not None:
                 controller.refresh_geometry(force=True)
@@ -774,6 +846,9 @@ def _install_rotation(window):
 
 def enhance(window):
     _install_native_text_card(window)
+    view = _find_canvas(window)
+    if view is not None and view.scene() is not None:
+        window._v57_selection_filter = CanvasSelectionFilter(window, view)
     window._v56_text_binder = TextInspectorBinder(window)
     _install_lines_library(window)
     _install_rotation(window)
