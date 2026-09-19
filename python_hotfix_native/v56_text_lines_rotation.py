@@ -128,7 +128,41 @@ def _install_native_text_card(window):
     align = QComboBox()
     align.setObjectName("v56TextAlignment")
     align.addItems(["Izquierda", "Centro", "Derecha", "Justificado"])
-    form.addRow("Alineación", align)
+    align.hide()
+
+    align_host = QWidget()
+    align_host.setObjectName("v57AlignmentButtons")
+    align_layout = QGridLayout(align_host)
+    align_layout.setContentsMargins(0, 0, 0, 0)
+    align_layout.setHorizontalSpacing(5)
+    alignment_buttons = []
+    for i, (label, value) in enumerate([
+        ("Izq.", "Izquierda"),
+        ("Centro", "Centro"),
+        ("Der.", "Derecha"),
+        ("Justif.", "Justificado"),
+    ]):
+        button = QToolButton()
+        button.setText(label)
+        button.setCheckable(True)
+        button.setAutoExclusive(True)
+        button.setToolTip({
+            "Izquierda": "Alinear texto a la izquierda",
+            "Centro": "Centrar texto",
+            "Derecha": "Alinear texto a la derecha",
+            "Justificado": "Justificar texto",
+        }[value])
+        button.clicked.connect(lambda _=False, v=value: align.setCurrentText(v))
+        align_layout.addWidget(button, 0, i)
+        alignment_buttons.append((button, value))
+    alignment_buttons[0][0].setChecked(True)
+    align.currentTextChanged.connect(
+        lambda value: [
+            button.setChecked(value == target)
+            for button, target in alignment_buttons
+        ]
+    )
+    form.addRow("Alineación", align_host)
 
     tracking = QDoubleSpinBox()
     tracking.setObjectName("v56TextTracking")
@@ -150,6 +184,7 @@ def _install_native_text_card(window):
     outer.addLayout(form)
     body_layout.insertWidget(0, card)
 
+    window._v56_alignment_buttons = alignment_buttons
     window._v56_text_fields = {
         "contenido": content,
         "fuente": font,
