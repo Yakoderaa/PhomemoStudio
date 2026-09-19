@@ -33,6 +33,7 @@ ROLE_KIND = 1001
 ROLE_ASSET = 1002
 ROLE_NAME = 1003
 ROLE_V54 = 1054
+ROLE_LOCKED = 1058
 
 
 def _data_root() -> Path:
@@ -479,6 +480,7 @@ def _common_item(item: QGraphicsItem):
         "transform_origin": [float(item.transformOriginPoint().x()), float(item.transformOriginPoint().y())],
         "opacity": float(item.opacity()),
         "visible": bool(item.isVisible()),
+        "locked": bool(item.data(ROLE_LOCKED)),
         "data_kind": item.data(ROLE_KIND),
         "data_asset": item.data(ROLE_ASSET),
         "data_name": item.data(ROLE_NAME),
@@ -505,7 +507,13 @@ def _apply_common(item: QGraphicsItem, data: dict):
             pass
     item.setOpacity(float(data.get("opacity", 1)))
     item.setVisible(bool(data.get("visible", True)))
-    item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsFocusable)
+    locked = bool(data.get("locked", False))
+    item.setData(ROLE_LOCKED, locked)
+    if locked:
+        item.setFlags(QGraphicsItem.GraphicsItemFlag(0))
+        item.setData(ROLE_V54, True)
+    else:
+        item.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsFocusable)
     for role, key in ((ROLE_KIND, "data_kind"), (ROLE_ASSET, "data_asset"), (ROLE_NAME, "data_name")):
         if data.get(key) is not None:
             item.setData(role, data.get(key))
@@ -717,7 +725,7 @@ def _restore_item(data: dict) -> QGraphicsItem | None:
 def _is_user_item(item: QGraphicsItem) -> bool:
     if isinstance(item, QGraphicsProxyWidget):
         return False
-    if item.data(ROLE_V54) or item.data(ROLE_KIND):
+    if item.data(ROLE_V54) or item.data(ROLE_KIND) or item.data(ROLE_LOCKED):
         return True
     flags = item.flags()
     return bool(flags & (QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable))
