@@ -8,7 +8,7 @@ from PIL import ImageStat
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QBrush, QImage, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QGraphicsEllipseItem, QGraphicsPixmapItem, QGraphicsRectItem,
+    QApplication, QGraphicsEllipseItem, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem,
     QGraphicsTextItem
 )
 
@@ -37,27 +37,27 @@ img = QImage(72, 72, QImage.Format_ARGB32)
 img.fill(Qt.black)
 pix = QGraphicsPixmapItem(QPixmap.fromImage(img))
 pix.setPos(25, 38)
-pix.setFlags(pix.flags() | pix.ItemIsSelectable | pix.ItemIsMovable)
+pix.setFlags(pix.flags() | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
 scene.addItem(pix)
 
 # Centre: text
 text = QGraphicsTextItem("Vainilla\nChips negras")
 text.setDefaultTextColor(QColor("black"))
 text.setPos(185, 30)
-text.setFlags(text.flags() | text.ItemIsSelectable | text.ItemIsMovable)
+text.setFlags(text.flags() | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
 scene.addItem(text)
 
 # Right: shape + line/frame fragment
 ellipse = QGraphicsEllipseItem(420, 30, 55, 55)
 ellipse.setBrush(QBrush(QColor("black")))
 ellipse.setPen(QPen(Qt.NoPen))
-ellipse.setFlags(ellipse.flags() | ellipse.ItemIsSelectable | ellipse.ItemIsMovable)
+ellipse.setFlags(ellipse.flags() | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
 scene.addItem(ellipse)
 
 frame = QGraphicsRectItem(8, 8, 484, 134)
 frame.setPen(QPen(QColor("black"), 2))
 frame.setBrush(Qt.NoBrush)
-frame.setFlags(frame.flags() | frame.ItemIsSelectable | frame.ItemIsMovable)
+frame.setFlags(frame.flags() | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable)
 scene.addItem(frame)
 
 # Use a landscape label option if the legacy size combo has one.
