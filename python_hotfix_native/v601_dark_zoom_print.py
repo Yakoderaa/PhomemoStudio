@@ -144,7 +144,7 @@ class NumericStepper(QObject):
     def __init__(self, spin):
         super().__init__(spin)
         self.spin = spin
-        spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         spin.setProperty("modernStepper", True)
 
         self.minus = QToolButton(spin)
