@@ -61,7 +61,9 @@ def _label_source_rect(scene) -> QRectF:
             # on every edge (320x96 becomes ~321x97) and then forces another
             # rescale at print time.
             if isinstance(item, QGraphicsRectItem):
-                rect = item.mapRectToScene(item.rect()).boundingRect()
+                # sceneTransform().mapRect returns the logical rectangle in
+                # scene coordinates without including the pen thickness.
+                rect = item.sceneTransform().mapRect(item.rect())
             else:
                 rect = item.sceneBoundingRect()
             if (
