@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.10.1 app enhancements
+      - name: Apply 5.10.2 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -63,9 +63,9 @@ jobs:
           python python_hotfix_native\v5101_exact_print_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.2"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.10.1: exact full-scene D30 print with correct landscape orientation"
+          Write-Host "Applied 5.10.2: exact scene through real D30 print protocol + standalone updater helper"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -103,7 +103,7 @@ jobs:
           python -c "from phomemo_studio.printer import D30Printer; p=D30Printer(); assert p.snapshot.name=='D30'; assert hasattr(p,'maintain_connection'); p.close(); print('Native BLE wrapper smoke OK')"
           python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
           python -c "from PySide6.QtWidgets import QApplication; a=QApplication([]); from phomemo_studio.v53_fonts_library import massive_catalog_size; n=massive_catalog_size(); assert n>20000, n; print('Massive open object catalog',n)"
-          python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; u=Path('python_app/phomemo_studio/studio_pro.py').read_text(encoding='utf-8'); assert 'PhomemoStudio-update.ps1' in u and 'installer exit code' in u and 'relaunching app' in u; iss=Path('python_app/installer.iss').read_text(encoding='utf-8'); assert 'skipifnotsilent' in iss and 'Stop-Process' in u and 'sys.executable' in u and 'appCandidates' in u; print('Updater handoff/install/relaunch smoke OK')"
+          python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; u=Path('python_app/phomemo_studio/studio_pro.py').read_text(encoding='utf-8'); assert 'PhomemoStudioUpdater.exe' in u and 'powershell.exe' not in u and 'shutil.copy2' in u; iss=Path('python_app/installer.iss').read_text(encoding='utf-8'); assert 'PhomemoStudioUpdater.exe' in iss and 'skipifnotsilent' in iss; helper=Path('python_hotfix_native/update_helper.py').read_text(encoding='utf-8'); assert 'taskkill' in helper and 'installer exit=' in helper and 'relaunch fallback' in helper; print('Standalone updater handoff/install/relaunch smoke OK')"
           python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()>=3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None and c.lineEdit() is not None and not c.lineEdit().isClearButtonEnabled() for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.2 UI + clean font selector + library + roll accounting smoke OK')"
           python python_hotfix_native\v54_smoke.py
           python python_hotfix_native\v55_smoke.py
@@ -143,6 +143,15 @@ jobs:
           if (-not (Test-Path dist\PhomemoStudio.exe)) { throw "PyInstaller no generó PhomemoStudio.exe" }
           Write-Host "EXE bytes: $((Get-Item dist\PhomemoStudio.exe).Length)"
 
+      - name: Build standalone updater helper
+        shell: pwsh
+        working-directory: python_app
+        run: |
+          $ErrorActionPreference = "Stop"
+          pyinstaller --noconfirm --clean --onefile --noconsole --name PhomemoStudioUpdater ..\python_hotfix_native\update_helper.py
+          if (-not (Test-Path dist\PhomemoStudioUpdater.exe)) { throw "PyInstaller no generó PhomemoStudioUpdater.exe" }
+          Write-Host "Updater EXE bytes: $((Get-Item dist\PhomemoStudioUpdater.exe).Length)"
+
       - name: Stage native BLE bridge
         shell: pwsh
         run: |
@@ -166,12 +175,13 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-ExactPrint
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-PrintUpdater
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
             python_app/dist/PhomemoStudio.exe
             python_app/dist/PhomemoBleBridge.exe
+            python_app/dist/PhomemoStudioUpdater.exe
 
       - name: Create GitHub release
         if: github.ref == 'refs/heads/main'
@@ -183,6 +193,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.1: reemplaza el armado parcial de impresión por un render directo de la escena completa del lienzo, excluyendo únicamente controles de edición. Texto, imágenes PNG/SVG, iconos, líneas, marcos, rotaciones y escalas pasan al raster tal como se ven. Para etiquetas apaisadas, el raster se rota automáticamente antes de enviarlo a la D30 para que el lado corto quede sobre el cabezal térmico y el lado largo siga la dirección de avance, evitando la impresión a 90° y el recorte de contenido. Se mantiene la biblioteca persistente de Diseños y todas las funciones anteriores."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.2: corrige la regresión de V5.10.1 donde Imprimir generaba el raster correcto pero lo enviaba con la secuencia de paquetes de calibración, por lo que la app indicaba impresión sin que la D30 imprimiera físicamente. Ahora el lienzo completo se rasteriza como antes, se orienta correctamente y se envía mediante make_print_packet, el protocolo real de impresión que ya utilizaba la ruta funcional original, respetando densidad, modo continuo y avance. También reemplaza el actualizador basado en PowerShell por un PhomemoStudioUpdater.exe independiente incluido con la aplicación: espera el cierre, instala, valida el código de salida y relanza Phomemo Studio automáticamente."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
