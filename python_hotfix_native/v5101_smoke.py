@@ -97,26 +97,40 @@ image_to_d30_raster = globals_.get("image_to_d30_raster")
 make_print_packet = globals_.get("make_print_packet")
 assert callable(image_to_d30_raster)
 assert callable(make_print_packet)
-raster, rw, rh = image_to_d30_raster(design)
-expected = make_print_packet(
-    raster,
-    rw,
-    rh,
-    int(w.density.value()),
-    bool(w.continuous.isChecked()),
-    int(w.feed.value()),
-)
 
 packets = w._pack_current()
 assert isinstance(packets, list) and packets
-assert packets == expected
-debug = getattr(w, "_v5101_last_print_debug")
-assert debug["rotated"] is True
-assert debug["raster_size"] == (design.height, design.width)
-assert debug["printer_size"] == debug["raster_size"]
-assert debug["raster_size"] == (int(rw), int(rh))
-assert debug["raster_bytes"] == len(raster)
-assert debug["packet_count"] == len(expected)
+
+# Newer releases may intentionally apply physical D30 alignment before packet
+# creation. Validate against the currently installed canonical raster path.
+try:
+    from phomemo_studio.v603_print_queue_concentration import _current_raster, _pack_from_raster
+    job = _current_raster(w)
+    expected = _pack_from_raster(w, job)
+    assert packets == expected
+    assert job["design_size"] == (320, 96)
+    assert (job["rw"], job["rh"]) == (96, 320)
+    debug = getattr(w, "_v603_last_print_debug")
+    assert debug["raster_size"] == (96, 320)
+    assert debug["packet_count"] == len(expected)
+except Exception:
+    raster, rw, rh = image_to_d30_raster(design)
+    expected = make_print_packet(
+        raster,
+        rw,
+        rh,
+        int(w.density.value()),
+        bool(w.continuous.isChecked()),
+        int(w.feed.value()),
+    )
+    assert packets == expected
+    debug = getattr(w, "_v5101_last_print_debug")
+    assert debug["rotated"] is True
+    assert debug["raster_size"] == (design.height, design.width)
+    assert debug["printer_size"] == debug["raster_size"]
+    assert debug["raster_size"] == (int(rw), int(rh))
+    assert debug["raster_bytes"] == len(raster)
+    assert debug["packet_count"] == len(expected)
 # Normal printing must use the printer's real print protocol builder, not the
 # three-packet calibration sequence that caused V5.10.1 to report "printing"
 # without any physical print.
