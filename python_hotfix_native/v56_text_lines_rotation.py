@@ -16,10 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from .studio_pro import _find_canvas
+from .v5101_exact_print import DEFAULT_PRINT_RADIUS_MM, DPI, _label_source_rect
 
 OVERLAY_ROLE = 1098
 ROLE_KIND = 1001
 ROLE_NAME = 1003
+LABEL_FRAME_MARGIN_MM = 1.0
+LABEL_FRAME_MARGIN_PX = LABEL_FRAME_MARGIN_MM * DPI / 25.4
 
 
 def _norm(value: str) -> str:
@@ -603,6 +606,7 @@ class TextInspectorBinder(QObject):
 # ---------------------------------------------------------------------------
 
 LINE_STYLES = [
+    ("Marco etiqueta", "label-frame"),
     ("Línea", "solid"),
     ("Línea fina", "thin"),
     ("Línea gruesa", "thick"),
@@ -671,7 +675,53 @@ def _line_icon(kind: str) -> QIcon:
     return QIcon(pm)
 
 
+def _insert_label_frame(window, label: str):
+    view = _find_canvas(window)
+    if view is None or view.scene() is None:
+        return None
+    scene = view.scene()
+    source = _label_source_rect(scene)
+    if source.isNull():
+        return None
+
+    inner = source.adjusted(
+        LABEL_FRAME_MARGIN_PX,
+        LABEL_FRAME_MARGIN_PX,
+        -LABEL_FRAME_MARGIN_PX,
+        -LABEL_FRAME_MARGIN_PX,
+    )
+    radius = max(
+        2.0,
+        DEFAULT_PRINT_RADIUS_MM * DPI / 25.4 - LABEL_FRAME_MARGIN_PX,
+    )
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(0, 0, inner.width(), inner.height()), radius, radius)
+
+    item = QGraphicsPathItem(path)
+    pen = QPen(QColor("#111827"), 2.0)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    item.setPen(pen)
+    item.setBrush(Qt.NoBrush)
+    item.setFlags(
+        QGraphicsItem.ItemIsMovable
+        | QGraphicsItem.ItemIsSelectable
+        | QGraphicsItem.ItemIsFocusable
+    )
+    item.setData(ROLE_KIND, "studio-frame")
+    item.setData(ROLE_NAME, label)
+    item.setPos(inner.topLeft())
+    scene.clearSelection()
+    scene.addItem(item)
+    item.setSelected(True)
+    _schedule(window)
+    return item
+
+
 def insert_line(window, label: str, kind: str):
+    if kind == "label-frame":
+        return _insert_label_frame(window, label)
+
     view = _find_canvas(window)
     if view is None or view.scene() is None:
         return None
@@ -701,7 +751,7 @@ def _build_lines_page(window):
     outer.setContentsMargins(0, 0, 0, 0)
     outer.setSpacing(10)
 
-    info = QLabel("Líneas básicas para divisores, subrayados, señalización y flechas.")
+    info = QLabel("Líneas básicas y Marco etiqueta, que sigue la curvatura real dentro del margen seguro de 1 mm.")
     info.setWordWrap(True)
     info.setProperty("muted", True)
     outer.addWidget(info)
