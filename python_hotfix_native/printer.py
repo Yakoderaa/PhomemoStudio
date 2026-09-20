@@ -215,18 +215,22 @@ class D30Printer:
         if not self.snapshot.connected:
             self._request({"command": "connect", "preferredAddress": self._last_address}, 20)
         total = sum(len(p) for p in packets)
-        encoded = []
-        done = 0
-        for packet in packets:
-            encoded.append(base64.b64encode(packet).decode("ascii"))
-            done += len(packet)
-            if progress_cb:
-                progress_cb(min(done, total), total)
-        result = self._request({"command": "send", "packets": encoded}, max(30, min(180, 30 + total / 4000)))
+        encoded = [base64.b64encode(packet).decode("ascii") for packet in packets]
+
+        # Do not show 100% before anything has physically been sent. Preparing
+        # base64 is local work; the actual BLE transfer happens inside _request.
+        if progress_cb:
+            progress_cb(0, max(1, total))
+
+        result = self._request(
+            {"command": "send", "packets": encoded},
+            max(30, min(180, 30 + total / 4000))
+        )
+
         if post_delay:
             time.sleep(post_delay)
         if progress_cb:
-            progress_cb(total, total)
+            progress_cb(total, max(1, total))
         self._emit(result.get("message") or "Impresión enviada a la D30")
         return True
 
