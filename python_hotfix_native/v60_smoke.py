@@ -19,26 +19,6 @@ from phomemo_studio.v58_text_clipboard_layers import set_item_locked
 
 w = MainWindow()
 QApplication.processEvents()
-print("REAL_LABEL_GEOMETRY_START")
-try:
-    from phomemo_studio.studio_pro import _find_canvas
-    _view = _find_canvas(w)
-    _scene = _view.scene()
-    print("sceneRect", _scene.sceneRect().x(), _scene.sceneRect().y(), _scene.sceneRect().width(), _scene.sceneRect().height())
-    _combo = getattr(w, "size_combo", None)
-    if _combo is not None:
-        print("size_combo", _combo.currentText(), _combo.currentData())
-    for _it in _scene.items():
-        try:
-            if hasattr(_it, "brush") and not _it.data(1098):
-                _br = _it.sceneBoundingRect()
-                _color = _it.brush().color().name()
-                print("static", type(_it).__name__, "z", _it.zValue(), "rect", _br.x(), _br.y(), _br.width(), _br.height(), "color", _color, "kind", _it.data(1001))
-        except Exception as _exc:
-            print("item_error", type(_it).__name__, repr(_exc))
-except Exception as _exc:
-    print("geometry_error", repr(_exc))
-print("REAL_LABEL_GEOMETRY_END")
 
 # Illustrator-style overall structure.
 right = w.findChild(QFrame, "v60RightPanel")
