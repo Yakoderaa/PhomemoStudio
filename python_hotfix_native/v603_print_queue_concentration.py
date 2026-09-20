@@ -50,6 +50,8 @@ def _apply_d30_alignment(window, image: Image.Image) -> Image.Image:
     return image.convert("L")
 
 
+STIPPLE_THRESHOLD = 205
+
 BAYER_8X8 = (
     (0, 48, 12, 60, 3, 51, 15, 63),
     (32, 16, 44, 28, 35, 19, 47, 31),
@@ -97,7 +99,7 @@ def _intentional_stipple_mask(gray: Image.Image) -> Image.Image:
     for sy in range(h):
         for sx in range(w):
             i0 = idx(sx, sy)
-            if visited[i0] or px[sx, sy] > 185:
+            if visited[i0] or px[sx, sy] > STIPPLE_THRESHOLD:
                 continue
 
             stack = [(sx, sy)]
@@ -119,7 +121,7 @@ def _intentional_stipple_mask(gray: Image.Image) -> Image.Image:
                         if nx == x and ny == y:
                             continue
                         ii = idx(nx, ny)
-                        if not visited[ii] and px[nx, ny] <= 185:
+                        if not visited[ii] and px[nx, ny] <= STIPPLE_THRESHOLD:
                             visited[ii] = 1
                             stack.append((nx, ny))
 
