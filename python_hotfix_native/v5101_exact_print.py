@@ -2,15 +2,21 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QMessageBox, QGraphicsRectItem
+from PySide6.QtWidgets import QMessageBox, QGraphicsPathItem, QGraphicsRectItem
 
 from .studio_pro import _find_canvas
 from .v54_assets_session import _is_user_item
 
 OVERLAY_ROLE = 1098
+PRINT_ZONE_ROLE = 1110
+WORKBOARD_ROLE = 1111
+PRINT_RADIUS_ROLE = 1112
+DEFAULT_PRINT_RADIUS_MM = 2.0
+DPI = 203.0
+
 
 
 def _qimage_to_pil(image: QImage) -> Image.Image:
@@ -43,8 +49,33 @@ def _label_size_px(window, label_pixels):
     return 320, 120
 
 
+def _print_zone_item(scene):
+    for item in scene.items():
+        try:
+            if item.data(PRINT_ZONE_ROLE):
+                return item
+        except Exception:
+            pass
+    return None
+
+
+def _logical_item_rect(item) -> QRectF:
+    if isinstance(item, QGraphicsRectItem):
+        return item.sceneTransform().mapRect(item.rect())
+    if isinstance(item, QGraphicsPathItem):
+        return item.sceneTransform().mapRect(item.path().boundingRect())
+    return item.sceneBoundingRect()
+
+
 def _label_source_rect(scene) -> QRectF:
-    """Return the physical white label rectangle, not the whole gray workspace."""
+    """Return the exact logical 40x12 mm print zone, never the workspace."""
+    zone = _print_zone_item(scene)
+    if zone is not None:
+        rect = _logical_item_rect(zone)
+        if rect.width() > 0 and rect.height() > 0:
+            return rect
+
+    # Backward-compatible fallback for sessions created before V6.0.5.
     candidates = []
     for item in scene.items():
         try:
@@ -60,12 +91,7 @@ def _label_source_rect(scene) -> QRectF:
             # cosmetic/outline pen. sceneBoundingRect() includes half the pen
             # on every edge (320x96 becomes ~321x97) and then forces another
             # rescale at print time.
-            if isinstance(item, QGraphicsRectItem):
-                # sceneTransform().mapRect returns the logical rectangle in
-                # scene coordinates without including the pen thickness.
-                rect = item.sceneTransform().mapRect(item.rect())
-            else:
-                rect = item.sceneBoundingRect()
+            rect = _logical_item_rect(item)
             if (
                 color.alpha() >= 240
                 and color.red() >= 238
@@ -126,7 +152,25 @@ def render_visible_label(window, label_pixels=None) -> Image.Image:
             except Exception:
                 pass
 
-    return _qimage_to_pil(image)
+    out = _qimage_to_pil(image)
+
+    zone = _print_zone_item(scene)
+    if zone is not None:
+        try:
+            radius_mm = float(zone.data(PRINT_RADIUS_ROLE) or DEFAULT_PRINT_RADIUS_MM)
+        except Exception:
+            radius_mm = DEFAULT_PRINT_RADIUS_MM
+        radius_px = max(1, int(round(radius_mm * DPI / 25.4)))
+        mask = Image.new("L", out.size, 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle(
+            (0, 0, out.width - 1, out.height - 1),
+            radius=min(radius_px, out.height // 2),
+            fill=255,
+        )
+        out = Image.composite(out, Image.new("L", out.size, 255), mask)
+
+    return out
 
 
 def orient_for_d30(image: Image.Image) -> Image.Image:
