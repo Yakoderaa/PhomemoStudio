@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
 from .v5101_exact_print import render_visible_label
 
 
-# D30 mechanical start-position compensation measured on 40x12 mm labels.
-# 203 dpi = 7.99 dots/mm, so 8 dots is effectively 1.0 mm.
-LABEL_40X12_X_OFFSET_PX = -8
+# The visible white 40x12 mm canvas is the complete usable print area.
+# Never shift/crop the artwork behind the user's back.
+LABEL_40X12_X_OFFSET_PX = 0
 
 DENSITY_LEVELS = {
     "Liviana": 3,
@@ -46,33 +46,48 @@ def _physical_size(window):
 
 
 def _apply_d30_alignment(window, image: Image.Image) -> Image.Image:
-    """Compensate the D30 physical start offset without changing the on-screen design."""
-    wmm, hmm = _physical_size(window)
-    if abs(wmm - 40.0) > 0.05 or abs(hmm - 12.0) > 0.05:
-        return image
+    """WYSIWYG: the white canvas already is the entire usable physical label."""
+    return image.convert("L")
 
-    offset_x = LABEL_40X12_X_OFFSET_PX
-    if offset_x == 0:
-        return image
 
-    src = image.convert("L")
-    out = Image.new("L", src.size, 255)
-    out.paste(src, (offset_x, 0))
-    return out
+def _image_to_d30_dithered_raster(window, image: Image.Image):
+    """
+    Convert the exact grayscale canvas to D30 1-bit raster with Floyd-Steinberg
+    dithering. Black/white stay exact; intermediate grays become distributed
+    thermal dots instead of collapsing to solid black.
+    """
+    _label_pixels, _legacy_converter, _make_print_packet = _printer_globals(window)
+    original = getattr(type(window), "_v5101_original_pack_current", None)
+    globals_ = getattr(original, "__globals__", {}) if callable(original) else {}
+    pack_mono_pixels = globals_.get("pack_mono_pixels")
+    if not callable(pack_mono_pixels):
+        # Safe fallback to the legacy converter if the packer is unavailable.
+        return _legacy_converter(image)
+
+    gray = image.convert("L")
+    # Pillow's 1-bit conversion with Floyd-Steinberg preserves apparent gray
+    # by spatial dot density, which is exactly what a monochrome thermal head needs.
+    mono = gray.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
+    rot = mono.transpose(Image.Transpose.ROTATE_270)
+    w, h = rot.size
+    px = rot.load()
+    rows = [[px[x, y] == 0 for x in range(w)] for y in range(h)]
+    return pack_mono_pixels(rows)
 
 
 def _current_raster(window):
-    label_pixels, image_to_d30_raster, _make_print_packet = _printer_globals(window)
+    label_pixels, _image_to_d30_raster, _make_print_packet = _printer_globals(window)
     design = render_visible_label(window, label_pixels)
     aligned = _apply_d30_alignment(window, design)
-    raster, rw, rh = image_to_d30_raster(aligned)
+    raster, rw, rh = _image_to_d30_dithered_raster(window, aligned)
     return {
         "design_size": tuple(design.size),
         "aligned_size": tuple(aligned.size),
         "raster": bytes(raster),
         "rw": int(rw),
         "rh": int(rh),
-        "offset_x": LABEL_40X12_X_OFFSET_PX if _physical_size(window) == (40.0, 12.0) else 0,
+        "offset_x": 0,
+        "dither": "Floyd-Steinberg",
     }
 
 
