@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QFrame, QMenu, QPushButton
 
-from .studio_pro import _call_first, _find_legacy_button
+from .v51_redesign import _call_first, _find_legacy_button
 
 
 def _remove_header_actions(window):
