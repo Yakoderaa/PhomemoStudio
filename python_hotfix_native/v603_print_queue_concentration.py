@@ -62,22 +62,28 @@ BAYER_8X8 = (
 )
 
 
+def _pack_black_rows(rows):
+    """Pack True=black pixels as ESC/POS MSB-first raster bytes."""
+    height = len(rows)
+    width = len(rows[0]) if height else 0
+    width_bytes = (width + 7) // 8
+    out = bytearray(width_bytes * height)
+    for y, row in enumerate(rows):
+        base = y * width_bytes
+        for x, black in enumerate(row):
+            if black:
+                out[base + (x >> 3)] |= 0x80 >> (x & 7)
+    return bytes(out), width, height
+
+
 def _image_to_d30_dithered_raster(window, image: Image.Image):
     """
     Ordered 8x8 thermal halftone.
 
-    Pure black/white remain pure. Intermediate tones become a stable, regular
-    dot density instead of the blotchy clusters produced by error diffusion.
-    This is better suited to the D30's 203 dpi monochrome thermal head.
+    Pure black/white remain exact. Intermediate tones become a regular dot
+    density. Packing is done directly instead of delegating to the legacy
+    threshold converter, so the halftone cannot collapse back to solid black.
     """
-    _label_pixels, _legacy_converter, _make_print_packet = _printer_globals(window)
-    original = getattr(type(window), "_v5101_original_pack_current", None)
-    globals_ = getattr(original, "__globals__", {}) if callable(original) else {}
-    pack_mono_pixels = globals_.get("pack_mono_pixels")
-    if not callable(pack_mono_pixels):
-        return _legacy_converter(image)
-
-    # Rotate only once, exactly as the original D30 path expects.
     rot = image.convert("L").transpose(Image.Transpose.ROTATE_270)
     w, h = rot.size
     px = rot.load()
@@ -95,8 +101,7 @@ def _image_to_d30_dithered_raster(window, image: Image.Image):
                 black = value < threshold
             row.append(black)
         rows.append(row)
-    return pack_mono_pixels(rows)
-
+    return _pack_black_rows(rows)
 
 def _current_raster(window):
     label_pixels, _image_to_d30_raster, _make_print_packet = _printer_globals(window)
