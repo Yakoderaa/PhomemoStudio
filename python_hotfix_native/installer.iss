@@ -24,7 +24,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=assets\sr-gato.ico
 [Files]
 Source: "dist\PhomemoStudio.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\PhomemoBleBridge.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\PhomemoBleBridge.exe"; DestDir: "{app}"; Flags: ignoreversion\nSource: "dist\PhomemoStudioUpdater.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
