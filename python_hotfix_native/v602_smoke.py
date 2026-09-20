@@ -42,9 +42,10 @@ for action in w.menuBar().actions():
         archivo = action.menu()
         break
 assert archivo is not None
-submenus = [a.menu() for a in archivo.actions() if a.menu() is not None]
-guardar_como = next((m for m in submenus if m.title().replace("&","").strip().casefold() == "guardar como"), None)
+guardar_como = getattr(w, "_v602_save_as_menu", None)
 assert guardar_como is not None
+assert guardar_como.title().replace("&","").strip().casefold() == "guardar como"
+assert any(a.menu() is guardar_como for a in archivo.actions())
 png_actions = [a for a in guardar_como.actions() if a.text().replace("&","").strip().casefold().startswith("png")]
 assert len(png_actions) == 1
 assert png_actions[0].isEnabled()
