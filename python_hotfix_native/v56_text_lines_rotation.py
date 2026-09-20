@@ -621,6 +621,9 @@ LINE_STYLES = [
 
 def _line_path(kind: str) -> QPainterPath:
     p = QPainterPath()
+    if kind == "label-frame":
+        p.addRoundedRect(QRectF(8, 28, 184, 44), 12, 12)
+        return p
     if kind == "double":
         p.moveTo(5, 43)
         p.lineTo(195, 43)
