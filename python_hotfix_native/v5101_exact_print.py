@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QMessageBox, QGraphicsPathItem, QGraphicsRectItem
@@ -16,6 +16,7 @@ WORKBOARD_ROLE = 1111
 PRINT_RADIUS_ROLE = 1112
 DEFAULT_PRINT_RADIUS_MM = 2.0
 DPI = 203.0
+SUPERSAMPLE = 4
 
 
 
@@ -125,7 +126,14 @@ def render_visible_label(window, label_pixels=None) -> Image.Image:
         raise RuntimeError("El lienzo está vacío.")
 
     design_w, design_h = _label_size_px(window, label_pixels)
-    image = QImage(design_w, design_h, QImage.Format_ARGB32_Premultiplied)
+
+    # Render vector/text/image content at 4x and reduce with LANCZOS. The D30
+    # still receives exactly 320x96 for a 40x12 mm label, but diagonal and
+    # curved strokes no longer inherit the coarse 203-dpi staircase directly
+    # from QGraphicsScene.
+    render_w = design_w * SUPERSAMPLE
+    render_h = design_h * SUPERSAMPLE
+    image = QImage(render_w, render_h, QImage.Format_ARGB32_Premultiplied)
     image.fill(Qt.white)
 
     overlays = [item for item in scene.items() if item.data(OVERLAY_ROLE)]
@@ -140,7 +148,7 @@ def render_visible_label(window, label_pixels=None) -> Image.Image:
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         scene.render(
             painter,
-            QRectF(0, 0, design_w, design_h),
+            QRectF(0, 0, render_w, render_h),
             source,
             Qt.IgnoreAspectRatio,
         )
@@ -152,7 +160,11 @@ def render_visible_label(window, label_pixels=None) -> Image.Image:
             except Exception:
                 pass
 
-    out = _qimage_to_pil(image)
+    high = _qimage_to_pil(image)
+    out = high.resize((design_w, design_h), Image.Resampling.LANCZOS)
+    # Light sharpening restores the visual weight of thin vector strokes after
+    # supersampling without reintroducing jagged edges.
+    out = out.filter(ImageFilter.UnsharpMask(radius=0.55, percent=115, threshold=3))
 
     zone = _print_zone_item(scene)
     if zone is not None:
