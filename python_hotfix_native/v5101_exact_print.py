@@ -126,15 +126,16 @@ def install(MainWindow):
         # Render the exact live scene so text, imported images, SVGs, icons,
         # lines, rotations, scaling and layer visibility match the canvas.
         design = render_visible_label(self, label_pixels)
-        printer_image = orient_for_d30(design)
-        raster, rw, rh = image_to_d30_raster(printer_image)
+
+        # image_to_d30_raster() already performs the clockwise rotation used by
+        # the original working D30 print path. Do NOT rotate the scene before
+        # calling it: doing so rotates twice and makes the long side become the
+        # thermal-head width, which the D30 silently ignores.
+        raster, rw, rh = image_to_d30_raster(design)
 
         rw, rh = int(rw), int(rh)
-        if (rw, rh) != printer_image.size:
-            # The helper owns any padding to byte boundaries, but dimensions
-            # must still describe the image sent to the D30.
-            if rw <= 0 or rh <= 0:
-                raise RuntimeError("La conversión de impresión devolvió dimensiones inválidas.")
+        if rw <= 0 or rh <= 0:
+            raise RuntimeError("La conversión de impresión devolvió dimensiones inválidas.")
 
         _validate_raster(raster, rw, rh)
 
@@ -150,9 +151,9 @@ def install(MainWindow):
 
         self._v5101_last_print_debug = {
             "design_size": tuple(design.size),
-            "printer_size": tuple(printer_image.size),
+            "printer_size": (rw, rh),
             "raster_size": (rw, rh),
-            "rotated": bool(design.width > design.height),
+            "rotated": bool(design.width > design.height and rw < rh),
             "raster_bytes": len(raster),
             "density": density,
             "continuous": continuous,
