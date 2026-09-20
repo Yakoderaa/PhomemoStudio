@@ -19,6 +19,14 @@ from phomemo_studio.studio_pro import _find_canvas
 from phomemo_studio.v5101_exact_print import render_visible_label, orient_for_d30
 
 w = MainWindow()
+import inspect
+_base_pack = getattr(type(w), "_v5101_original_pack_current", None)
+print("BASE_PACK_SOURCE_START")
+try:
+    print(inspect.getsource(_base_pack))
+except Exception as _exc:
+    print("BASE_PACK_SOURCE_ERROR", repr(_exc))
+print("BASE_PACK_SOURCE_END")
 view = _find_canvas(w)
 assert view is not None and view.scene() is not None
 scene = view.scene()
