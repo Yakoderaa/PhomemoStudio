@@ -486,8 +486,7 @@ def _apply_illustrator_style(window):
             border:0;
         }}
     """
-    window.setStyleSheet(current + "
-" + extra)
+    window.setStyleSheet(current + "\n" + extra)
 
 
 def enhance(window):
