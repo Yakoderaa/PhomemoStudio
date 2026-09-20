@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 6.0.1 app enhancements
+      - name: Apply 6.0.2 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -64,11 +64,12 @@ jobs:
           python python_hotfix_native\v5103_header_status_patch.py
           python python_hotfix_native\v60_illustrator_workspace_patch.py
           python python_hotfix_native\v601_dark_zoom_print_patch.py
+          python python_hotfix_native\v602_menu_cleanup_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.1"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.2"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 6.0.1: full dark UI + functional zoom + exact 40x12 mm print mapping"
+          Write-Host "Applied 6.0.2: dark UI + zoom + exact 40x12 print + clear steppers + clean File/Save As menu"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -107,7 +108,7 @@ jobs:
           python -c "from phomemo_studio.studio_pro import SHAPES,shape_path; assert len(SHAPES)>=40; assert not shape_path('Corazón').isEmpty(); print('Shape library',len(SHAPES))"
           python -c "from PySide6.QtWidgets import QApplication; a=QApplication([]); from phomemo_studio.v53_fonts_library import massive_catalog_size; n=massive_catalog_size(); assert n>20000, n; print('Massive open object catalog',n)"
           python -c "from pathlib import Path; s=Path('python_app/PhomemoStudio.spec').read_text(encoding='utf-8'); assert 'sr-gato.ico' in s; u=Path('python_app/phomemo_studio/studio_pro.py').read_text(encoding='utf-8'); assert 'PhomemoStudioUpdater.exe' in u and 'powershell.exe' not in u and 'shutil.copy2' in u; iss=Path('python_app/installer.iss').read_text(encoding='utf-8'); assert 'PhomemoStudioUpdater.exe' in iss and 'skipifnotsilent' in iss; helper=Path('python_hotfix_native/update_helper.py').read_text(encoding='utf-8'); assert 'taskkill' in helper and 'installer exit=' in helper and 'relaunch fallback' in helper; print('Standalone updater handoff/install/relaunch smoke OK')"
-          python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()>=3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(s.buttonSymbols()==QAbstractSpinBox.ButtonSymbols.PlusMinus for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None and c.lineEdit() is not None and not c.lineEdit().isClearButtonEnabled() for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.2 UI + clean font selector + library + roll accounting smoke OK')"
+          python -c "from PySide6.QtGui import QFontDatabase; from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QTabWidget,QSpinBox,QDoubleSpinBox,QAbstractSpinBox; from phomemo_studio.ui import MainWindow; from phomemo_studio.v53_fonts_library import _font_combos; a=QApplication([]); w=MainWindow(); rail=w.findChild(QFrame,'v51Rail'); drawer=w.findChild(QFrame,'v51Drawer'); inspector=w.findChild(QFrame,'v51Inspector'); scroll=w.findChild(QScrollArea,'v51InspectorScroll'); tabs=w.findChild(QTabWidget,'v52OpenLibraryTabs'); assert rail and drawer and inspector and scroll and tabs and tabs.count()>=3; spins=list(w.findChildren(QSpinBox))+list(w.findChildren(QDoubleSpinBox)); assert spins and all(bool(s.property('v601StepperInstalled')) for s in spins); fonts=_font_combos(w,QFontDatabase.families()); assert fonts and all(c.isEditable() and c.completer() is not None and c.lineEdit() is not None and not c.lineEdit().isClearButtonEnabled() for c in fonts); assert getattr(w,'_v53_font_timer').isActive(); w._v51_hide_drawer(); assert drawer.isHidden(); w._v51_show_drawer('Formas'); assert not drawer.isHidden(); w.roll_remaining.setValue(22); before=w.roll_remaining.value(); w.on_future_done(('calibrated',0),None); assert w.roll_remaining.value()==before; w.on_future_done(('printed',1),None); assert w.roll_remaining.value()==before-1; w.close(); print('V5.3.2 UI + clean font selector + library + roll accounting smoke OK')"
           python python_hotfix_native\v54_smoke.py
           python python_hotfix_native\v55_smoke.py
           python python_hotfix_native\v56_smoke.py
@@ -120,6 +121,7 @@ jobs:
           python python_hotfix_native\v5103_smoke.py
           python python_hotfix_native\v60_smoke.py
           python python_hotfix_native\v601_smoke.py
+          python python_hotfix_native\v602_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -181,7 +183,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-DarkZoomPrint
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Studio602
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -199,6 +201,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.1: completa el tema oscuro de toda la interfaz eliminando los contenedores blancos heredados, salvo la etiqueta física blanca del lienzo. Repara los controles de zoom junto a Calibrar: −, + y 100% modifican ahora la transformación real del QGraphicsView y Ctrl+rueda también ajusta el zoom. Para etiquetas de 40×12 mm, la app usa como área física exacta el rectángulo lógico 320×96 px a 203 dpi, excluyendo el grosor del borde del QGraphicsRectItem; el raster se genera directamente a 320×96 y luego la conversión D30 lo rota una única vez a 96×320. Esto evita reescalados extra y hace que el contenido ocupe en la etiqueta física la misma proporción que dentro del rectángulo blanco en pantalla. Se mantiene el layout tipo Illustrator, Capas/Propiedades/Cola a la derecha y conexión/batería/papel/rollo arriba."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.2: completa la tanda de ajustes V6. Tema oscuro uniforme sin islas blancas fuera del papel, zoom real con − / + / 100% y Ctrl+rueda, y controles numéricos con botones horizontales visibles − a la izquierda y + a la derecha. La impresión para etiquetas físicas de 40×12 mm usa exactamente el rectángulo lógico blanco de 320×96 px a 203 dpi, sin sumar el grosor del borde ni reencuadrar el área gris, y la D30 realiza una sola rotación a 96×320. Se eliminan Guardar, Duplicar y PNG de la barra superior; Guardar/Duplicar permanecen en Diseños y PNG pasa a Archivo → Guardar como → PNG. Se mantienen Capas/Propiedades/Cola a la derecha, estado de impresora arriba, actualizador independiente, diseños persistentes, historial y autosave."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
