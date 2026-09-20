@@ -76,24 +76,6 @@ original = getattr(type(w), "_v5101_original_pack_current", None)
 assert callable(original)
 assert type(w)._pack_current is not original
 
-import inspect
-print("PRINT_PROTOCOL_SOURCE_START")
-for _name in ("make_print_packet", "image_to_d30_raster"):
-    _obj = getattr(original, "__globals__", {}).get(_name)
-    print("SOURCE", _name)
-    try:
-        print(inspect.getsource(_obj))
-    except Exception as _exc:
-        print("SOURCE_ERROR", _name, repr(_exc))
-for _name in ("print_current", "on_print", "calibrate", "on_calibrate", "on_future_done"):
-    _obj = getattr(type(w), _name, None)
-    if callable(_obj):
-        print("METHOD", _name)
-        try:
-            print(inspect.getsource(_obj))
-        except Exception as _exc:
-            print("METHOD_ERROR", _name, repr(_exc))
-print("PRINT_PROTOCOL_SOURCE_END")
 
 # Exact scene render must preserve content across the full width, including
 # imported/raster items and vector items, before printer orientation.
@@ -111,16 +93,11 @@ assert left_mean < 250, left_mean
 assert mid_mean < 254, mid_mean
 assert right_mean < 250, right_mean
 
-printer = orient_for_d30(design)
-assert printer.width == design.height
-assert printer.height == design.width
-assert printer.width < printer.height
-
 image_to_d30_raster = globals_.get("image_to_d30_raster")
 make_print_packet = globals_.get("make_print_packet")
 assert callable(image_to_d30_raster)
 assert callable(make_print_packet)
-raster, rw, rh = image_to_d30_raster(printer)
+raster, rw, rh = image_to_d30_raster(design)
 expected = make_print_packet(
     raster,
     rw,
@@ -135,7 +112,8 @@ assert isinstance(packets, list) and packets
 assert packets == expected
 debug = getattr(w, "_v5101_last_print_debug")
 assert debug["rotated"] is True
-assert debug["printer_size"][0] < debug["printer_size"][1]
+assert debug["raster_size"] == (design.height, design.width)
+assert debug["printer_size"] == debug["raster_size"]
 assert debug["raster_size"] == (int(rw), int(rh))
 assert debug["raster_bytes"] == len(raster)
 assert debug["packet_count"] == len(expected)
@@ -149,4 +127,4 @@ assert not (
 )
 
 w.close()
-print("V5.10.2 exact scene raster + real D30 print protocol smoke OK")
+print("V5.10.3 single-rotation exact scene + real D30 print protocol smoke OK")
