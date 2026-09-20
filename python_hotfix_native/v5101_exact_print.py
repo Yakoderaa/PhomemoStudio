@@ -98,20 +98,11 @@ def orient_for_d30(image: Image.Image) -> Image.Image:
     return image
 
 
-def _build_packets(raster: bytes, width_px: int, height_px: int):
+def _validate_raster(raster: bytes, width_px: int, height_px: int):
     width_bytes = (int(width_px) + 7) // 8
     expected = width_bytes * int(height_px)
     if len(raster) != expected:
         raise ValueError(f"Raster de impresión inválido: {len(raster)} != {expected}")
-    return [
-        bytes([0x1F, 0x11, 0x24, 0x00]),
-        bytes([
-            0x1B, 0x40, 0x1D, 0x76, 0x30, 0x00,
-            width_bytes & 0xFF, (width_bytes >> 8) & 0xFF,
-            int(height_px) & 0xFF, (int(height_px) >> 8) & 0xFF,
-        ]),
-        raster,
-    ]
 
 
 def install(MainWindow):
@@ -126,7 +117,8 @@ def install(MainWindow):
     globals_ = getattr(original_pack, "__globals__", {})
     label_pixels = globals_.get("label_pixels")
     image_to_d30_raster = globals_.get("image_to_d30_raster")
-    if not callable(image_to_d30_raster):
+    make_print_packet = globals_.get("make_print_packet")
+    if not callable(image_to_d30_raster) or not callable(make_print_packet):
         return
 
     def pack_current(self):
@@ -144,13 +136,28 @@ def install(MainWindow):
             if rw <= 0 or rh <= 0:
                 raise RuntimeError("La conversión de impresión devolvió dimensiones inválidas.")
 
-        packets = _build_packets(raster, rw, rh)
+        _validate_raster(raster, rw, rh)
+
+        # IMPORTANT: use the D30 protocol builder from the original working
+        # print path. The V5.10.1 regression came from replacing this with the
+        # much simpler calibration-style packet sequence; calibration could
+        # still feed paper, while a normal print job was never committed by
+        # the printer firmware.
+        density = int(self.density.value())
+        continuous = bool(self.continuous.isChecked())
+        feed = int(self.feed.value())
+        packets = make_print_packet(raster, rw, rh, density, continuous, feed)
+
         self._v5101_last_print_debug = {
             "design_size": tuple(design.size),
             "printer_size": tuple(printer_image.size),
             "raster_size": (rw, rh),
             "rotated": bool(design.width > design.height),
             "raster_bytes": len(raster),
+            "density": density,
+            "continuous": continuous,
+            "feed": feed,
+            "packet_count": len(packets),
         }
         return packets
 
