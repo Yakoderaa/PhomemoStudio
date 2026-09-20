@@ -19,14 +19,6 @@ from phomemo_studio.studio_pro import _find_canvas
 from phomemo_studio.v5101_exact_print import render_visible_label, orient_for_d30
 
 w = MainWindow()
-import inspect
-_base_pack = getattr(type(w), "_v5101_original_pack_current", None)
-print("BASE_PACK_SOURCE_START")
-try:
-    print(inspect.getsource(_base_pack))
-except Exception as _exc:
-    print("BASE_PACK_SOURCE_ERROR", repr(_exc))
-print("BASE_PACK_SOURCE_END")
 view = _find_canvas(w)
 assert view is not None and view.scene() is not None
 scene = view.scene()
@@ -105,19 +97,37 @@ assert printer.width == design.height
 assert printer.height == design.width
 assert printer.width < printer.height
 
+image_to_d30_raster = globals_.get("image_to_d30_raster")
+make_print_packet = globals_.get("make_print_packet")
+assert callable(image_to_d30_raster)
+assert callable(make_print_packet)
+raster, rw, rh = image_to_d30_raster(printer)
+expected = make_print_packet(
+    raster,
+    rw,
+    rh,
+    int(w.density.value()),
+    bool(w.continuous.isChecked()),
+    int(w.feed.value()),
+)
+
 packets = w._pack_current()
-assert isinstance(packets, list) and len(packets) == 3
-assert packets[0] == bytes([0x1F, 0x11, 0x24, 0x00])
-cmd = packets[1]
-assert cmd[:6] == bytes([0x1B, 0x40, 0x1D, 0x76, 0x30, 0x00])
-width_bytes = cmd[6] | (cmd[7] << 8)
-height_px = cmd[8] | (cmd[9] << 8)
+assert isinstance(packets, list) and packets
+assert packets == expected
 debug = getattr(w, "_v5101_last_print_debug")
 assert debug["rotated"] is True
 assert debug["printer_size"][0] < debug["printer_size"][1]
-assert width_bytes == (debug["raster_size"][0] + 7) // 8
-assert height_px == debug["raster_size"][1]
-assert len(packets[2]) == width_bytes * height_px
+assert debug["raster_size"] == (int(rw), int(rh))
+assert debug["raster_bytes"] == len(raster)
+assert debug["packet_count"] == len(expected)
+# Normal printing must use the printer's real print protocol builder, not the
+# three-packet calibration sequence that caused V5.10.1 to report "printing"
+# without any physical print.
+assert not (
+    len(packets) == 3
+    and packets[0] == bytes([0x1F, 0x11, 0x24, 0x00])
+    and packets[1][:6] == bytes([0x1B, 0x40, 0x1D, 0x76, 0x30, 0x00])
+)
 
 w.close()
-print("V5.10.1 exact full-scene print + D30 landscape orientation smoke OK")
+print("V5.10.2 exact scene raster + real D30 print protocol smoke OK")
