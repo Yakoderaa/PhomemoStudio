@@ -13,6 +13,32 @@ from phomemo_studio.ui import MainWindow
 w = MainWindow()
 QApplication.processEvents()
 
+import inspect
+print("V603_DIAG_START")
+for _name in ("add_to_queue", "print_queue", "_pack_current", "print_current"):
+    _obj = getattr(type(w), _name, None)
+    print("METHOD", _name)
+    try:
+        print(inspect.getsource(_obj))
+    except Exception as _exc:
+        print("METHOD_ERROR", _name, repr(_exc))
+_original_pack = getattr(type(w), "_v5101_original_pack_current", None)
+_globals = getattr(_original_pack, "__globals__", {}) if callable(_original_pack) else {}
+for _name in ("make_print_packet", "image_to_d30_raster"):
+    _obj = _globals.get(_name)
+    print("GLOBAL", _name)
+    try:
+        print(inspect.getsource(_obj))
+    except Exception as _exc:
+        print("GLOBAL_ERROR", _name, repr(_exc))
+for _attr in ("density", "feed", "continuous"):
+    _w = getattr(w, _attr, None)
+    try:
+        print("WIDGET", _attr, type(_w).__name__, "value", _w.value() if hasattr(_w,"value") else _w.isChecked(), "min", _w.minimum() if hasattr(_w,"minimum") else None, "max", _w.maximum() if hasattr(_w,"maximum") else None)
+    except Exception as _exc:
+        print("WIDGET_ERROR", _attr, repr(_exc))
+print("V603_DIAG_END")
+
 header = w.findChild(QFrame, "v51Header")
 assert header is not None
 header_texts = {b.text().replace("&","").strip().casefold() for b in header.findChildren(QPushButton)}
