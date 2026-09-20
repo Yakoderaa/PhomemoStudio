@@ -290,8 +290,15 @@ class MultiSelectionController(QObject):
     def _target_at(self, viewport_pos):
         for item in self.view.items(viewport_pos):
             if item.data(OVERLAY_ROLE):
-                # Handles must continue receiving their native mouse events.
-                return item
+                # Interactive resize/rotate handles keep their native event path.
+                # Passive overlays (selection/group outlines) must not block the
+                # actual object underneath from Shift/Ctrl/Alt selection logic.
+                try:
+                    if item.acceptedMouseButtons() != Qt.NoButton:
+                        return item
+                except Exception:
+                    pass
+                continue
             if item.data(ROLE_LOCKED):
                 continue
             if _is_user_item(item):
