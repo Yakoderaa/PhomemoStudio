@@ -16,7 +16,7 @@ from phomemo_studio.ui import MainWindow
 from phomemo_studio.studio_pro import _find_canvas
 from phomemo_studio.v5101_exact_print import _label_source_rect
 from phomemo_studio.v56_text_lines_rotation import insert_line
-from phomemo_studio.v604_alignment_multiselect import align_selection
+from phomemo_studio.v604_alignment_multiselect import SAFE_MARGIN_PX, _safe_label_rect, align_selection
 
 w = MainWindow()
 QApplication.processEvents()
@@ -90,8 +90,18 @@ assert align_selection(w, "top")
 after_dx = second.scenePos().x() - text.scenePos().x()
 assert abs(after_dx - before_dx) < 0.01
 group = text.sceneBoundingRect().united(second.sceneBoundingRect())
-assert abs(group.top() - label.top()) < 0.6
-assert abs(group.center().x() - label.center().x()) < 0.6
+safe = _safe_label_rect(label)
+assert abs(group.top() - safe.top()) < 0.6
+assert abs(group.center().x() - safe.center().x()) < 0.6
+
+# Four corner presets align to the same 1 mm safe rectangle.
+scene.clearSelection()
+text.setSelected(True)
+assert align_selection(w, "top-left")
+r = text.sceneBoundingRect()
+assert abs(r.left() - safe.left()) < 0.6
+assert abs(r.top() - safe.top()) < 0.6
+assert SAFE_MARGIN_PX > 7.0
 
 # Rubber-band selection is enabled for box selection.
 assert view.dragMode() == QGraphicsView.DragMode.RubberBandDrag
@@ -183,4 +193,4 @@ assert text.scene() is None and second.scene() is None
 assert len(scene.items()) <= before_count - 2
 
 w.close()
-print("V6.0.4 alignment + handles + multiselect + Alt/Shift drag smoke OK")
+print("V6.0.4/6 alignment + safe corners + handles + multiselect + Alt/Shift drag smoke OK")
