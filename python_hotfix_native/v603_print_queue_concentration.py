@@ -50,28 +50,51 @@ def _apply_d30_alignment(window, image: Image.Image) -> Image.Image:
     return image.convert("L")
 
 
+BAYER_8X8 = (
+    (0, 48, 12, 60, 3, 51, 15, 63),
+    (32, 16, 44, 28, 35, 19, 47, 31),
+    (8, 56, 4, 52, 11, 59, 7, 55),
+    (40, 24, 36, 20, 43, 27, 39, 23),
+    (2, 50, 14, 62, 1, 49, 13, 61),
+    (34, 18, 46, 30, 33, 17, 45, 29),
+    (10, 58, 6, 54, 9, 57, 5, 53),
+    (42, 26, 38, 22, 41, 25, 37, 21),
+)
+
+
 def _image_to_d30_dithered_raster(window, image: Image.Image):
     """
-    Convert the exact grayscale canvas to D30 1-bit raster with Floyd-Steinberg
-    dithering. Black/white stay exact; intermediate grays become distributed
-    thermal dots instead of collapsing to solid black.
+    Ordered 8x8 thermal halftone.
+
+    Pure black/white remain pure. Intermediate tones become a stable, regular
+    dot density instead of the blotchy clusters produced by error diffusion.
+    This is better suited to the D30's 203 dpi monochrome thermal head.
     """
     _label_pixels, _legacy_converter, _make_print_packet = _printer_globals(window)
     original = getattr(type(window), "_v5101_original_pack_current", None)
     globals_ = getattr(original, "__globals__", {}) if callable(original) else {}
     pack_mono_pixels = globals_.get("pack_mono_pixels")
     if not callable(pack_mono_pixels):
-        # Safe fallback to the legacy converter if the packer is unavailable.
         return _legacy_converter(image)
 
-    gray = image.convert("L")
-    # Pillow's 1-bit conversion with Floyd-Steinberg preserves apparent gray
-    # by spatial dot density, which is exactly what a monochrome thermal head needs.
-    mono = gray.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
-    rot = mono.transpose(Image.Transpose.ROTATE_270)
+    # Rotate only once, exactly as the original D30 path expects.
+    rot = image.convert("L").transpose(Image.Transpose.ROTATE_270)
     w, h = rot.size
     px = rot.load()
-    rows = [[px[x, y] == 0 for x in range(w)] for y in range(h)]
+    rows = []
+    for y in range(h):
+        row = []
+        for x in range(w):
+            value = int(px[x, y])
+            if value <= 12:
+                black = True
+            elif value >= 250:
+                black = False
+            else:
+                threshold = ((BAYER_8X8[y & 7][x & 7] + 0.5) * 255.0) / 64.0
+                black = value < threshold
+            row.append(black)
+        rows.append(row)
     return pack_mono_pixels(rows)
 
 
@@ -87,7 +110,7 @@ def _current_raster(window):
         "rw": int(rw),
         "rh": int(rh),
         "offset_x": 0,
-        "dither": "Floyd-Steinberg",
+        "dither": "Ordered Bayer 8x8",
     }
 
 
