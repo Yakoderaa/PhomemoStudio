@@ -12,19 +12,6 @@ from phomemo_studio.ui import MainWindow
 from phomemo_studio.printer import D30Printer, PrinterSnapshot
 
 w = MainWindow()
-from phomemo_studio.studio_pro import _find_canvas
-_view = _find_canvas(w)
-print("SCENE_ITEM_DUMP_START")
-if _view is not None and _view.scene() is not None:
-    for _it in _view.scene().items():
-        try:
-            _br = _it.sceneBoundingRect()
-            _brush = _it.brush() if hasattr(_it, "brush") else None
-            _color = _brush.color().name() if _brush is not None and hasattr(_brush, "color") else ""
-            print(type(_it).__name__, "z", _it.zValue(), "flags", int(_it.flags()), "rect", (_br.x(),_br.y(),_br.width(),_br.height()), "brush", _color, "kind", _it.data(1001))
-        except Exception as _exc:
-            print(type(_it).__name__, "ERR", repr(_exc))
-print("SCENE_ITEM_DUMP_END")
 status = w.findChild(QFrame, "v5103PrinterStatus")
 assert status is not None
 assert getattr(w, "connect_btn").parentWidget() is status
