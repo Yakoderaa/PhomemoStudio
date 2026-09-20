@@ -80,7 +80,9 @@ def _label_source_rect(scene) -> QRectF:
         # The page/label is the largest static white rectangle in the scene.
         return max(candidates, key=lambda r: r.width() * r.height())
 
-    source = _label_source_rect(scene)
+    source = scene.sceneRect()
+    if source.isNull() or source.width() <= 0 or source.height() <= 0:
+        source = scene.itemsBoundingRect()
     return source
 
 
@@ -90,9 +92,7 @@ def render_visible_label(window, label_pixels=None) -> Image.Image:
     if view is None or view.scene() is None:
         raise RuntimeError("No encontré el lienzo activo.")
     scene = view.scene()
-    source = scene.sceneRect()
-    if source.isNull() or source.width() <= 0 or source.height() <= 0:
-        source = scene.itemsBoundingRect()
+    source = _label_source_rect(scene)
     if source.isNull() or source.width() <= 0 or source.height() <= 0:
         raise RuntimeError("El lienzo está vacío.")
 
