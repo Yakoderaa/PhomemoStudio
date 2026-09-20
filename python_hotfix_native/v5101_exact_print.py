@@ -8,6 +8,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QMessageBox
 
 from .studio_pro import _find_canvas
+from .v54_assets_session import _is_user_item
 
 OVERLAY_ROLE = 1098
 
@@ -40,6 +41,40 @@ def _label_size_px(window, label_pixels):
         if r.width() > 0 and r.height() > 0:
             return max(1, round(r.width())), max(1, round(r.height()))
     return 320, 120
+
+
+def _label_source_rect(scene) -> QRectF:
+    """Return the physical white label rectangle, not the whole gray workspace."""
+    candidates = []
+    for item in scene.items():
+        try:
+            if item.data(OVERLAY_ROLE):
+                continue
+            if _is_user_item(item):
+                continue
+            if not hasattr(item, "brush"):
+                continue
+            brush = item.brush()
+            color = brush.color()
+            rect = item.sceneBoundingRect()
+            if (
+                color.alpha() >= 240
+                and color.red() >= 238
+                and color.green() >= 238
+                and color.blue() >= 238
+                and rect.width() > 40
+                and rect.height() > 20
+            ):
+                candidates.append(rect)
+        except Exception:
+            continue
+
+    if candidates:
+        # The page/label is the largest static white rectangle in the scene.
+        return max(candidates, key=lambda r: r.width() * r.height())
+
+    source = _label_source_rect(scene)
+    return source
 
 
 def render_visible_label(window, label_pixels=None) -> Image.Image:
