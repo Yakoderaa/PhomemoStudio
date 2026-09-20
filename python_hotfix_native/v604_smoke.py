@@ -7,7 +7,7 @@ os.environ["PHOMEMO_STUDIO_DATA_DIR"] = tempfile.mkdtemp(prefix="phomemo-v604-")
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import (
-    QApplication, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem
+    QApplication, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsView
 )
 
 app = QApplication.instance() or QApplication([])
@@ -94,8 +94,8 @@ assert abs(group.top() - label.top()) < 0.6
 assert abs(group.center().x() - label.center().x()) < 0.6
 
 # Rubber-band selection is enabled for box selection.
-assert view.dragMode() == view.RubberBandDrag
-assert view.rubberBandSelectionMode() == Qt.ContainsItemShape
+assert view.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+assert view.rubberBandSelectionMode() == Qt.ItemSelectionMode.ContainsItemShape
 
 # Ctrl+A selects all unlocked user items.
 scene.clearSelection()
