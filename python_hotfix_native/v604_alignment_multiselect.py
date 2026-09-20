@@ -414,10 +414,12 @@ class MultiSelectionController(QObject):
                     event.accept()
                     return True
 
-            # Clicking an item already inside a multi-selection should keep the
-            # whole selection so Qt's native movable-items behavior moves it as a group.
+            # The older text-selection filter clears a multi-selection on a
+            # normal click, so handle group drag here before that filter sees it.
             if target is not None and len(self.selected()) > 1 and target.isSelected():
-                return False
+                if self._begin_custom_drag(target, event, duplicate=False, orthogonal=False):
+                    event.accept()
+                    return True
 
         elif event.type() == QEvent.MouseMove and self.drag_active:
             if event.buttons() & Qt.LeftButton:
