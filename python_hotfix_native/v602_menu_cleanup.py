@@ -46,7 +46,8 @@ def _rebuild_file_menu(window):
     else:
         archivo.clear()
 
-    guardar_como = archivo.addMenu("Guardar como")
+    guardar_como = QMenu("Guardar como", archivo)
+    archivo.addMenu(guardar_como)
 
     png = QAction("PNG…", window)
     png.setObjectName("v602SaveAsPng")
