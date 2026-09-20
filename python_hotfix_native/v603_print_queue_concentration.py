@@ -112,12 +112,8 @@ def _intentional_stipple_mask(gray: Image.Image) -> Image.Image:
                 minx = min(minx, x); maxx = max(maxx, x)
                 miny = min(miny, y); maxy = max(maxy, y)
 
-                # Stop growing once it is clearly not a stipple point.
-                if len(comp) > 18 or (maxx - minx) > 6 or (maxy - miny) > 6:
-                    # Mark remaining connected pixels visited cheaply, but do
-                    # not preserve this as stippling.
-                    continue
-
+                # Always traverse the full component so a large shape cannot
+                # be split into artificial "small dots" on later scans.
                 for ny in range(max(0, y - 1), min(h, y + 2)):
                     for nx in range(max(0, x - 1), min(w, x + 2)):
                         if nx == x and ny == y:
