@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QBrush, QFont, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QGraphicsItem, QGraphicsPathItem, QGraphicsRectItem, QGraphicsSimpleTextItem
+    QGraphicsItem, QGraphicsPathItem, QGraphicsRectItem, QGraphicsSimpleTextItem, QGraphicsView
 )
 
 from .studio_pro import _find_canvas
@@ -182,8 +182,8 @@ def _refresh_transform_tools(window):
     multi = getattr(window, "_v604_multi_select", None)
     if multi is not None:
         try:
-            multi.view.setDragMode(multi.view.RubberBandDrag)
-            multi.view.setRubberBandSelectionMode(Qt.ContainsItemShape)
+            multi.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            multi.view.setRubberBandSelectionMode(Qt.ItemSelectionMode.ContainsItemShape)
             multi.refresh_outline()
         except Exception:
             pass
