@@ -4,7 +4,7 @@ import tempfile
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["PHOMEMO_STUDIO_DATA_DIR"] = tempfile.mkdtemp(prefix="phomemo-v601-")
 
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFrame, QLabel, QPushButton, QSpinBox, QToolButton
 
 app = QApplication.instance() or QApplication([])
 
@@ -67,6 +67,18 @@ QApplication.processEvents()
 assert label.text() == "100%"
 assert abs(view.transform().m11() - 1.0) < 0.001
 
+# Every numeric control gets explicit horizontal − / + buttons instead of
+# nearly invisible native dots/arrows.
+QApplication.processEvents()
+spins = list(w.findChildren(QSpinBox)) + list(w.findChildren(QDoubleSpinBox))
+assert spins
+for spin in spins:
+    assert spin.property("v601StepperInstalled"), spin.objectName()
+    minus_buttons = [b for b in spin.findChildren(QToolButton) if b.objectName() == "v601StepperMinus"]
+    plus_buttons = [b for b in spin.findChildren(QToolButton) if b.objectName() == "v601StepperPlus"]
+    assert len(minus_buttons) == 1 and minus_buttons[0].text() in ("−", "-"), spin.objectName()
+    assert len(plus_buttons) == 1 and plus_buttons[0].text() == "+", spin.objectName()
+
 # V6.0.1 must append a global dark rule; the white label is a scene item,
 # not a white QWidget island.
 style = w.styleSheet()
@@ -75,4 +87,4 @@ assert "background:#2B2B2B" in style
 assert "QFrame#v51CanvasHost" in style
 
 w.close()
-print("V6.0.1 40x12 exact print mapping + dark UI + functional zoom smoke OK")
+print("V6.0.1 40x12 print + dark UI + zoom + clear numeric steppers smoke OK")
