@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 5.10.2 app enhancements
+      - name: Apply 5.10.3 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -61,11 +61,12 @@ jobs:
           python python_hotfix_native\v591_rotated_line_resize_patch.py
           python python_hotfix_native\v510_print_designs_patch.py
           python python_hotfix_native\v5101_exact_print_patch.py
+          python python_hotfix_native\v5103_header_status_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.2"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "5.10.3"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 5.10.2: exact scene through real D30 print protocol + standalone updater helper"
+          Write-Host "Applied 5.10.3: single D30 rotation + real print protocol + persistent printer status header"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -114,6 +115,7 @@ jobs:
           python python_hotfix_native\v591_smoke.py
           python python_hotfix_native\v510_smoke.py
           python python_hotfix_native\v5101_smoke.py
+          python python_hotfix_native\v5103_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -175,7 +177,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-PrintUpdater
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-PrintHeader
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -193,6 +195,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.2: corrige la regresión de V5.10.1 donde Imprimir generaba el raster correcto pero lo enviaba con la secuencia de paquetes de calibración, por lo que la app indicaba impresión sin que la D30 imprimiera físicamente. Ahora el lienzo completo se rasteriza como antes, se orienta correctamente y se envía mediante make_print_packet, el protocolo real de impresión que ya utilizaba la ruta funcional original, respetando densidad, modo continuo y avance. También reemplaza el actualizador basado en PowerShell por un PhomemoStudioUpdater.exe independiente incluido con la aplicación: espera el cierre, instala, valida el código de salida y relanza Phomemo Studio automáticamente."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V5.10.3: corrige la causa por la que V5.10.2 seguía sin imprimir físicamente: image_to_d30_raster ya rota el lienzo una vez como exige la D30, y la app lo estaba rotando previamente una segunda vez. Ahora el lienzo completo se renderiza sin rotación previa y la única rotación queda en el conversor original de la impresora, por lo que el lado corto vuelve a ser el ancho del cabezal. Se conserva make_print_packet, el protocolo real de impresión. La barra de progreso ya no llega al 100% antes del envío BLE. Además, Conectar/Desconectar, Batería, Papel y Rollo quedan siempre visibles en la cabecera junto a Propiedades, Actualizar e Imprimir. Se mantiene el actualizador independiente PhomemoStudioUpdater.exe."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
