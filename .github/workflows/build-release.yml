@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 6.0.5 app enhancements
+      - name: Apply 6.0.6 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -69,11 +69,12 @@ jobs:
           python python_hotfix_native\v603_print_queue_concentration_patch.py
           python python_hotfix_native\v604_alignment_multiselect_patch.py
           python python_hotfix_native\v605_canvas_workspace_patch.py
+          python python_hotfix_native\v606_quality_safearea_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.5"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.6"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 6.0.5: rebuilt canvas + rounded 40x12 print zone + ordered halftone + restored transform tools"
+          Write-Host "Applied 6.0.6: stipple preservation + supersampled lines + rounded safe frame + 9-way safe alignment + header cleanup"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -130,6 +131,7 @@ jobs:
           python python_hotfix_native\v603_smoke.py
           python python_hotfix_native\v604_smoke.py
           python python_hotfix_native\v605_smoke.py
+          python python_hotfix_native\v606_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -191,7 +193,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Canvas605
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Quality606
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -209,6 +211,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.5 rehace el lienzo desde la base. La mesa de trabajo ahora es más grande que la etiqueta y contiene una zona imprimible explícita de 40×12 mm (320×96 px a 203 dpi) con esquinas redondeadas de 2 mm; esa zona tiene un identificador propio y es la única geometría usada para imprimir, alinear y renderizar. El fondo/mesa exterior nunca entra al raster. La impresión recorta también las cuatro esquinas redondeadas, de modo que la vista y el papel físico comparten la misma forma. Se reemplaza el Floyd-Steinberg por tramado térmico ordenado Bayer 8×8: negro/blanco permanecen nítidos y los grises/puntillismo se forman mediante una distribución regular de puntos para evitar manchas. Después de restaurar autosave se reconstruye el controlador de selección para garantizar caja, 8 tiradores de tamaño y 4 controles de rotación en objetos/textos/imágenes; las líneas conservan dos tiradores de longitud y rotación sin modificar grosor desde el lienzo. Se mantienen Alinear a etiqueta, selección múltiple estilo Illustrator (Shift/Ctrl, marco, Alt duplicar, Shift ortogonal y Alt+Shift), concentración Liviana/Estándar/Concentrada, cola e impresión con el mismo raster, tema oscuro, zoom, diseños persistentes, icono de Windows y actualizador independiente."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.6 mejora la fidelidad de impresión y la edición alrededor de la etiqueta física. El render del lienzo se hace a 4× y se reduce con LANCZOS antes del raster térmico para suavizar líneas, curvas y diagonales sin cambiar el tamaño físico final de 40×12 mm. El conversor detecta automáticamente puntillismo intencional como pequeños componentes oscuros/gris-medio aislados, incluso antialiasados, y los preserva/refuerza como puntos térmicos reales; las superficies grises continuas siguen usando tramado Bayer ordenado. Se agrega un Marco etiqueta como una sola trayectoria redondeada que acompaña la curvatura física y queda dentro de una zona segura de 1 mm. Esa zona segura se ve como guía punteada en el editor y no se imprime. Alinear a etiqueta ahora tiene 9 posiciones: centro, cuatro lados y las cuatro esquinas; todos los lados/esquinas respetan el margen seguro de 1 mm. Los trazos del marco usan extremos y uniones redondeadas. También se limpian los placeholders Batería — y Papel — del encabezado: sin lectura muestran simplemente Batería/Papel, conservando los valores reales cuando existen. Se mantienen el lienzo V6.0.5, la zona imprimible redondeada, concentración Liviana/Estándar/Concentrada, cola unificada, resize/rotación, selección múltiple estilo Illustrator, zoom, diseños persistentes, icono de Windows y actualizador independiente."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
