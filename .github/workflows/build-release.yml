@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 6.0.2 app enhancements
+      - name: Apply 6.0.3 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -66,11 +66,12 @@ jobs:
           python python_hotfix_native\v601_dark_zoom_print_patch.py
           python python_hotfix_native\v602_menu_cleanup_patch.py
           python python_hotfix_native\v602_taskbar_icon_patch.py
+          python python_hotfix_native\v603_print_queue_concentration_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.2"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.3"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 6.0.2: dark UI + zoom + exact 40x12 print + clear steppers + clean File/Save As menu + Windows taskbar icon"
+          Write-Host "Applied 6.0.3: centered 40x12 print + concentration selector + unified normal/queue printing"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -124,6 +125,7 @@ jobs:
           python python_hotfix_native\v601_smoke.py
           python python_hotfix_native\v602_smoke.py
           python python_hotfix_native\v602_taskbar_smoke.py
+          python python_hotfix_native\v603_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -185,7 +187,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Studio602
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Print603
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -203,6 +205,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.2: completa la tanda de ajustes V6. Tema oscuro uniforme sin islas blancas fuera del papel, zoom real con − / + / 100% y Ctrl+rueda, y controles numéricos con botones horizontales visibles − a la izquierda y + a la derecha. La impresión para etiquetas físicas de 40×12 mm usa exactamente el rectángulo lógico blanco de 320×96 px a 203 dpi, sin sumar el grosor del borde ni reencuadrar el área gris, y la D30 realiza una sola rotación a 96×320. Se eliminan Guardar, Duplicar y PNG de la barra superior; Guardar/Duplicar permanecen en Diseños y PNG pasa a Archivo → Guardar como → PNG. El icono de Phomemo Studio queda forzado en ventana, barra de tareas y accesos directos de Windows mediante AppUserModelID Yakoderaa.PhomemoStudio y el icono embebido en el EXE. Se mantienen Capas/Propiedades/Cola a la derecha, estado de impresora arriba, actualizador independiente, diseños persistentes, historial y autosave."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.3: corrige el centrado físico de las etiquetas de 40×12 mm aplicando una compensación mecánica de 1 mm (8 puntos a 203 dpi) en el eje largo de la D30 sin modificar el diseño en pantalla. Agrega arriba, separado del bloque Conectar/Batería/Papel/Rollo, un selector de Concentración de impresión con Liviana=3/8, Estándar=6/8 y Concentrada=8/8, conectado a la densidad térmica real del protocolo D30. La Cola deja de usar el renderizador viejo por Element y almacena el mismo raster exacto que usa Imprimir; Imprimir todo reconstruye los mismos make_print_packet que el botón normal, de modo que ambos caminos imprimen el mismo diseño y respetan la concentración seleccionada. Se mantienen V6, tema oscuro, zoom, 40×12 mm exactos, capas, diseños persistentes, actualizador independiente e icono de barra de tareas."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
