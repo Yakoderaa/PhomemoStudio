@@ -12,7 +12,7 @@ from .v5101_exact_print import (
     PRINT_ZONE_ROLE, WORKBOARD_ROLE, _label_source_rect, _logical_item_rect,
 )
 from .v54_assets_session import _is_user_item
-from .v604_alignment_multiselect import _rebuild_transform_controller
+from .v604_alignment_multiselect import SAFE_MARGIN_PX, _rebuild_transform_controller
 
 PRINT_W_PX = 320.0
 PRINT_H_PX = 96.0
@@ -21,6 +21,7 @@ WORK_MARGIN_Y = 48.0
 SCENE_MARGIN_X = 110.0
 SCENE_MARGIN_Y = 90.0
 WORKBOARD_CAPTION_ROLE = 1113
+SAFE_ZONE_ROLE = 1114
 
 
 def _path_item(rect: QRectF, radius: float, fill: str, stroke: str, width: float, role: int):
@@ -139,9 +140,32 @@ def _ensure_workspace(window, recenter=False):
         zone.setPath(path)
         zone.setData(PRINT_RADIUS_ROLE, DEFAULT_PRINT_RADIUS_MM)
 
+    # Visible editor-only safe guide. It is intentionally an overlay so it
+    # never appears in exports/printing.
+    safe_rect = print_rect.adjusted(
+        SAFE_MARGIN_PX, SAFE_MARGIN_PX, -SAFE_MARGIN_PX, -SAFE_MARGIN_PX
+    )
+    safe_radius = max(2.0, radius_px - SAFE_MARGIN_PX)
+    safe_zone = _existing(scene, SAFE_ZONE_ROLE, QGraphicsPathItem)
+    if safe_zone is None:
+        safe_zone = _path_item(
+            safe_rect, safe_radius, "#00000000", "#8A9099", 1.0, SAFE_ZONE_ROLE
+        )
+        pen = safe_zone.pen()
+        pen.setStyle(Qt.DashLine)
+        pen.setDashPattern([4.0, 4.0])
+        safe_zone.setPen(pen)
+        safe_zone.setZValue(-999_998)
+        scene.addItem(safe_zone)
+    else:
+        path = QPainterPath()
+        path.addRoundedRect(safe_rect, safe_radius, safe_radius)
+        safe_zone.setPath(path)
+    window._v606_safe_zone = safe_zone
+
     caption = getattr(window, "_v605_print_caption", None)
     if caption is None or caption.scene() is not scene:
-        caption = QGraphicsSimpleTextItem("Área imprimible · 40 × 12 mm")
+        caption = QGraphicsSimpleTextItem("Área imprimible · 40 × 12 mm · guía punteada = margen seguro 1 mm")
         caption.setData(OVERLAY_ROLE, True)
         caption.setData(WORKBOARD_CAPTION_ROLE, True)
         caption.setBrush(QBrush(QColor("#666B73")))
