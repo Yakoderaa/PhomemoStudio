@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QEvent, Qt
+from PySide6.QtCore import QObject, QEvent, QTimer, Qt
 from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import (
-    QAbstractScrollArea, QFrame, QGraphicsView, QLabel, QPushButton, QScrollArea,
-    QToolButton, QWidget
+    QAbstractScrollArea, QAbstractSpinBox, QDoubleSpinBox, QFrame, QGraphicsView, QLabel,
+    QPushButton, QScrollArea, QSpinBox, QToolButton, QWidget
 )
 
 from .studio_pro import _find_canvas
@@ -86,6 +86,22 @@ def _apply_full_dark(window):
             border:1px solid #555;
             border-radius:3px;
         }}
+        QSpinBox[modernStepper="true"], QDoubleSpinBox[modernStepper="true"] {{
+            background:#232323;
+            color:{TEXT};
+            border:1px solid #555;
+            border-radius:3px;
+            padding:4px 31px 4px 31px;
+            min-height:26px;
+        }}
+        QSpinBox[modernStepper="true"]::up-button,
+        QSpinBox[modernStepper="true"]::down-button,
+        QDoubleSpinBox[modernStepper="true"]::up-button,
+        QDoubleSpinBox[modernStepper="true"]::down-button {{
+            width:0px;
+            height:0px;
+            border:0;
+        }}
         QListWidget, QTreeWidget {{
             background:#292929;
             color:{TEXT};
@@ -119,6 +135,129 @@ def _apply_full_dark(window):
         }}
     """
     window.setStyleSheet((window.styleSheet() or "") + "\n" + extra)
+
+
+
+class NumericStepper(QObject):
+    """Clear horizontal − / + buttons for every numeric field."""
+
+    def __init__(self, spin):
+        super().__init__(spin)
+        self.spin = spin
+        spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        spin.setProperty("modernStepper", True)
+
+        self.minus = QToolButton(spin)
+        self.minus.setObjectName("v601StepperMinus")
+        self.minus.setText("−")
+        self.minus.setToolTip("Disminuir")
+        self.minus.setFocusPolicy(Qt.NoFocus)
+        self.minus.setAutoRepeat(True)
+        self.minus.setAutoRepeatDelay(350)
+        self.minus.setAutoRepeatInterval(75)
+        self.minus.clicked.connect(spin.stepDown)
+
+        self.plus = QToolButton(spin)
+        self.plus.setObjectName("v601StepperPlus")
+        self.plus.setText("+")
+        self.plus.setToolTip("Aumentar")
+        self.plus.setFocusPolicy(Qt.NoFocus)
+        self.plus.setAutoRepeat(True)
+        self.plus.setAutoRepeatDelay(350)
+        self.plus.setAutoRepeatInterval(75)
+        self.plus.clicked.connect(spin.stepUp)
+
+        button_style = """
+            QToolButton {
+                background:#3A3A3A;
+                color:#F2F2F2;
+                border:0;
+                font-size:15px;
+                font-weight:700;
+                padding:0;
+            }
+            QToolButton:hover { background:#4B4B4B; }
+            QToolButton:pressed { background:#245B91; }
+            QToolButton:disabled { color:#777; background:#303030; }
+        """
+        self.minus.setStyleSheet(button_style)
+        self.plus.setStyleSheet(button_style)
+
+        spin.installEventFilter(self)
+        self._position()
+
+    def _position(self):
+        if self.spin is None:
+            return
+        h = max(22, self.spin.height() - 2)
+        w = min(28, max(24, h))
+        self.minus.setGeometry(1, 1, w, h)
+        self.plus.setGeometry(max(1, self.spin.width() - w - 1), 1, w, h)
+        self.minus.raise_()
+        self.plus.raise_()
+        line = self.spin.lineEdit()
+        if line is not None:
+            line.setTextMargins(w + 4, 0, w + 4, 0)
+
+    def eventFilter(self, obj, event):
+        if obj is self.spin and event.type() in (
+            QEvent.Resize, QEvent.Show, QEvent.StyleChange, QEvent.FontChange
+        ):
+            QTimer.singleShot(0, self._position)
+        return False
+
+
+def _install_numeric_steppers(window):
+    controllers = getattr(window, "_v601_numeric_steppers", None)
+    if controllers is None:
+        controllers = []
+        window._v601_numeric_steppers = controllers
+
+    def scan():
+        spins = list(window.findChildren(QSpinBox)) + list(window.findChildren(QDoubleSpinBox))
+        for spin in spins:
+            if spin.property("v601StepperInstalled"):
+                continue
+            spin.setProperty("v601StepperInstalled", True)
+            controllers.append(NumericStepper(spin))
+
+    scan()
+    timer = QTimer(window)
+    timer.setInterval(1200)
+    timer.timeout.connect(scan)
+    timer.start()
+    window._v601_numeric_stepper_timer = timer
+
+
+def _force_dark_local_widgets(window):
+    # Older versions gave the printer status its own light local stylesheet.
+    status = window.findChild(QFrame, "v5103PrinterStatus")
+    if status is not None:
+        status.setStyleSheet("""
+            QFrame#v5103PrinterStatus {
+                background:#303030;
+                border:1px solid #4C4C4C;
+                border-radius:4px;
+            }
+            QFrame#v5103PrinterStatus QLabel {
+                color:#E7E7E7;
+                background:transparent;
+                border:0;
+                padding:3px 5px;
+            }
+            QFrame#v5103PrinterStatus QPushButton {
+                background:#383838;
+                color:#F2F2F2;
+                border:1px solid #565656;
+                border-radius:3px;
+                padding:5px 9px;
+            }
+            QFrame#v5103PrinterStatus QPushButton[role="primary"] {
+                background:#2F74C0;
+                border-color:#4A91DD;
+                color:white;
+            }
+        """)
 
 
 class ZoomController(QObject):
@@ -206,6 +345,8 @@ def _install_zoom(window):
 
 def enhance(window):
     _apply_full_dark(window)
+    _force_dark_local_widgets(window)
+    _install_numeric_steppers(window)
     _install_zoom(window)
     window.statusBar().showMessage(
         "V6.0.1 · tema oscuro completo · zoom real · impresión 40×12 mm 1:1",
