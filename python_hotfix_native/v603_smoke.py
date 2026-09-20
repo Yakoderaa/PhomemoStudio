@@ -56,12 +56,16 @@ assert debug["density"] == 6, debug
 # Mid-gray is converted to a spatial black/white dot pattern, not a solid fill.
 from phomemo_studio.v603_print_queue_concentration import _image_to_d30_dithered_raster
 gray = Image.new("L", (320, 96), 160)
+white = Image.new("L", (320, 96), 255)
+black = Image.new("L", (320, 96), 0)
 gray_raster, gw, gh = _image_to_d30_dithered_raster(w, gray)
+white_raster, _, _ = _image_to_d30_dithered_raster(w, white)
+black_raster, _, _ = _image_to_d30_dithered_raster(w, black)
 assert (gw, gh) == (96, 320)
 assert gray_raster
-bits = sum(bin(byte).count("1") for byte in gray_raster)
-total_bits = gw * gh
-assert 0 < bits < total_bits, (bits, total_bits)
+assert gray_raster != white_raster
+assert gray_raster != black_raster
+assert len(set(gray_raster)) > 1
 
 # Queue stores the exact same raster route as normal print.
 queue = getattr(w, "_v603_queue", None)
