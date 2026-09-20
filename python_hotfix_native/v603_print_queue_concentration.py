@@ -76,6 +76,71 @@ def _pack_black_rows(rows):
     return bytes(out), width, height
 
 
+def _intentional_stipple_mask(gray: Image.Image) -> Image.Image:
+    """
+    Detect small isolated dark components already present in the artwork.
+
+    These are treated as intentional stippling rather than continuous gray.
+    The mask is slightly reinforced so single-pixel/very small dots survive
+    the 203 dpi thermal transfer.
+    """
+    src = gray.convert("L")
+    w, h = src.size
+    px = src.load()
+    visited = bytearray(w * h)
+    mask = Image.new("1", (w, h), 0)
+    out = mask.load()
+
+    def idx(x, y):
+        return y * w + x
+
+    for sy in range(h):
+        for sx in range(w):
+            i0 = idx(sx, sy)
+            if visited[i0] or px[sx, sy] > 185:
+                continue
+
+            stack = [(sx, sy)]
+            visited[i0] = 1
+            comp = []
+            minx = maxx = sx
+            miny = maxy = sy
+
+            while stack:
+                x, y = stack.pop()
+                comp.append((x, y))
+                minx = min(minx, x); maxx = max(maxx, x)
+                miny = min(miny, y); maxy = max(maxy, y)
+
+                # Stop growing once it is clearly not a stipple point.
+                if len(comp) > 18 or (maxx - minx) > 6 or (maxy - miny) > 6:
+                    # Mark remaining connected pixels visited cheaply, but do
+                    # not preserve this as stippling.
+                    continue
+
+                for ny in range(max(0, y - 1), min(h, y + 2)):
+                    for nx in range(max(0, x - 1), min(w, x + 2)):
+                        if nx == x and ny == y:
+                            continue
+                        ii = idx(nx, ny)
+                        if not visited[ii] and px[nx, ny] <= 185:
+                            visited[ii] = 1
+                            stack.append((nx, ny))
+
+            bw = maxx - minx + 1
+            bh = maxy - miny + 1
+            if 1 <= len(comp) <= 18 and bw <= 7 and bh <= 7:
+                # Preserve the original component. Very tiny dots are expanded
+                # to at least a 2px footprint so the thermal head can show them.
+                reinforce = 1 if len(comp) <= 4 else 0
+                for x, y in comp:
+                    for yy in range(max(0, y - reinforce), min(h, y + reinforce + 1)):
+                        for xx in range(max(0, x - reinforce), min(w, x + reinforce + 1)):
+                            out[xx, yy] = 1
+
+    return mask
+
+
 def _image_to_d30_dithered_raster(window, image: Image.Image):
     """
     Ordered 8x8 thermal halftone.
@@ -84,15 +149,22 @@ def _image_to_d30_dithered_raster(window, image: Image.Image):
     density. Packing is done directly instead of delegating to the legacy
     threshold converter, so the halftone cannot collapse back to solid black.
     """
-    rot = image.convert("L").transpose(Image.Transpose.ROTATE_270)
+    gray = image.convert("L")
+    stipple = _intentional_stipple_mask(gray)
+    rot = gray.transpose(Image.Transpose.ROTATE_270)
+    stipple_rot = stipple.transpose(Image.Transpose.ROTATE_270)
     w, h = rot.size
     px = rot.load()
+    stipple_px = stipple_rot.load()
     rows = []
     for y in range(h):
         row = []
         for x in range(w):
             value = int(px[x, y])
-            if value <= 12:
+            if stipple_px[x, y]:
+                # User-authored stipple/dot: preserve it as a real thermal dot.
+                black = True
+            elif value <= 28:
                 black = True
             elif value >= 250:
                 black = False
@@ -115,7 +187,7 @@ def _current_raster(window):
         "rw": int(rw),
         "rh": int(rh),
         "offset_x": 0,
-        "dither": "Ordered Bayer 8x8",
+        "dither": "Ordered Bayer 8x8 + stipple preservation",
     }
 
 
