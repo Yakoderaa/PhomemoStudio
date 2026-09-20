@@ -20,6 +20,7 @@ WORK_MARGIN_X = 56.0
 WORK_MARGIN_Y = 48.0
 SCENE_MARGIN_X = 110.0
 SCENE_MARGIN_Y = 90.0
+WORKBOARD_CAPTION_ROLE = 1113
 
 
 def _path_item(rect: QRectF, radius: float, fill: str, stroke: str, width: float, role: int):
@@ -70,10 +71,10 @@ def _remove_legacy_page(scene, old_rect: QRectF):
             pass
 
 
-def _existing(scene, role):
+def _existing(scene, role, item_type=None):
     for item in scene.items():
         try:
-            if item.data(role):
+            if item.data(role) and (item_type is None or isinstance(item, item_type)):
                 return item
         except Exception:
             pass
@@ -86,7 +87,7 @@ def _ensure_workspace(window, recenter=False):
         return
     scene = view.scene()
 
-    zone = _existing(scene, PRINT_ZONE_ROLE)
+    zone = _existing(scene, PRINT_ZONE_ROLE, QGraphicsPathItem)
     if zone is not None:
         print_rect = _logical_item_rect(zone)
     else:
@@ -111,7 +112,7 @@ def _ensure_workspace(window, recenter=False):
         -SCENE_MARGIN_X, -SCENE_MARGIN_Y, SCENE_MARGIN_X, SCENE_MARGIN_Y
     )
 
-    board = _existing(scene, WORKBOARD_ROLE)
+    board = _existing(scene, WORKBOARD_ROLE, QGraphicsPathItem)
     if board is None:
         board = _path_item(
             board_rect, 10.0, "#D9DCE1", "#5C6067", 1.0, WORKBOARD_ROLE
@@ -142,7 +143,7 @@ def _ensure_workspace(window, recenter=False):
     if caption is None or caption.scene() is not scene:
         caption = QGraphicsSimpleTextItem("Área imprimible · 40 × 12 mm")
         caption.setData(OVERLAY_ROLE, True)
-        caption.setData(WORKBOARD_ROLE, True)
+        caption.setData(WORKBOARD_CAPTION_ROLE, True)
         caption.setBrush(QBrush(QColor("#666B73")))
         font = QFont()
         font.setPointSizeF(8.5)
