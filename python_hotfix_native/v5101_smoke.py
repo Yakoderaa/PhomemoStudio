@@ -76,6 +76,25 @@ original = getattr(type(w), "_v5101_original_pack_current", None)
 assert callable(original)
 assert type(w)._pack_current is not original
 
+import inspect
+print("PRINT_PROTOCOL_SOURCE_START")
+for _name in ("make_print_packet", "image_to_d30_raster"):
+    _obj = getattr(original, "__globals__", {}).get(_name)
+    print("SOURCE", _name)
+    try:
+        print(inspect.getsource(_obj))
+    except Exception as _exc:
+        print("SOURCE_ERROR", _name, repr(_exc))
+for _name in ("print_current", "on_print", "calibrate", "on_calibrate", "on_future_done"):
+    _obj = getattr(type(w), _name, None)
+    if callable(_obj):
+        print("METHOD", _name)
+        try:
+            print(inspect.getsource(_obj))
+        except Exception as _exc:
+            print("METHOD_ERROR", _name, repr(_exc))
+print("PRINT_PROTOCOL_SOURCE_END")
+
 # Exact scene render must preserve content across the full width, including
 # imported/raster items and vector items, before printer orientation.
 globals_ = getattr(original, "__globals__", {})
