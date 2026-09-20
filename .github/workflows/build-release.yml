@@ -65,11 +65,12 @@ jobs:
           python python_hotfix_native\v60_illustrator_workspace_patch.py
           python python_hotfix_native\v601_dark_zoom_print_patch.py
           python python_hotfix_native\v602_menu_cleanup_patch.py
+          python python_hotfix_native\v602_taskbar_icon_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
           $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.2"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 6.0.2: dark UI + zoom + exact 40x12 print + clear steppers + clean File/Save As menu"
+          Write-Host "Applied 6.0.2: dark UI + zoom + exact 40x12 print + clear steppers + clean File/Save As menu + Windows taskbar icon"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -122,6 +123,7 @@ jobs:
           python python_hotfix_native\v60_smoke.py
           python python_hotfix_native\v601_smoke.py
           python python_hotfix_native\v602_smoke.py
+          python python_hotfix_native\v602_taskbar_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -201,6 +203,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.2: completa la tanda de ajustes V6. Tema oscuro uniforme sin islas blancas fuera del papel, zoom real con − / + / 100% y Ctrl+rueda, y controles numéricos con botones horizontales visibles − a la izquierda y + a la derecha. La impresión para etiquetas físicas de 40×12 mm usa exactamente el rectángulo lógico blanco de 320×96 px a 203 dpi, sin sumar el grosor del borde ni reencuadrar el área gris, y la D30 realiza una sola rotación a 96×320. Se eliminan Guardar, Duplicar y PNG de la barra superior; Guardar/Duplicar permanecen en Diseños y PNG pasa a Archivo → Guardar como → PNG. Se mantienen Capas/Propiedades/Cola a la derecha, estado de impresora arriba, actualizador independiente, diseños persistentes, historial y autosave."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.2: completa la tanda de ajustes V6. Tema oscuro uniforme sin islas blancas fuera del papel, zoom real con − / + / 100% y Ctrl+rueda, y controles numéricos con botones horizontales visibles − a la izquierda y + a la derecha. La impresión para etiquetas físicas de 40×12 mm usa exactamente el rectángulo lógico blanco de 320×96 px a 203 dpi, sin sumar el grosor del borde ni reencuadrar el área gris, y la D30 realiza una sola rotación a 96×320. Se eliminan Guardar, Duplicar y PNG de la barra superior; Guardar/Duplicar permanecen en Diseños y PNG pasa a Archivo → Guardar como → PNG. El icono de Phomemo Studio queda forzado en ventana, barra de tareas y accesos directos de Windows mediante AppUserModelID Yakoderaa.PhomemoStudio y el icono embebido en el EXE. Se mantienen Capas/Propiedades/Cola a la derecha, estado de impresora arriba, actualizador independiente, diseños persistentes, historial y autosave."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
