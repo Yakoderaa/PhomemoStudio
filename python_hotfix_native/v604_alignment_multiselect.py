@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from .studio_pro import _find_canvas
-from .v5101_exact_print import _label_source_rect
+from .v5101_exact_print import DPI, _label_source_rect
 from .v54_assets_session import (
     _is_user_item, _restore_item, _schedule_save, _serialize_item
 )
@@ -23,6 +23,8 @@ from .v591_rotated_line_resize import _install_axis_independent_line_resize
 OVERLAY_ROLE = 1098
 ROLE_LOCKED = 1058
 ROLE_KIND = 1001
+SAFE_MARGIN_MM = 1.0
+SAFE_MARGIN_PX = SAFE_MARGIN_MM * DPI / 25.4
 
 
 def _commit(window):
@@ -65,6 +67,15 @@ def _set_item_scene_delta(item, start_pos: QPointF, scene_delta: QPointF):
     item.setPos(start_pos + (b - a))
 
 
+def _safe_label_rect(label: QRectF) -> QRectF:
+    margin = min(
+        SAFE_MARGIN_PX,
+        max(0.0, label.width() / 2.0 - 1.0),
+        max(0.0, label.height() / 2.0 - 1.0),
+    )
+    return label.adjusted(margin, margin, -margin, -margin)
+
+
 def align_selection(window, mode: str):
     items = _selected_items(window)
     if not items:
@@ -78,22 +89,36 @@ def align_selection(window, mode: str):
     if group is None or label.isNull():
         return False
 
+    safe = _safe_label_rect(label)
     dx = dy = 0.0
     if mode == "center":
+        # Center is geometrically exact. Edge/corner modes use the 1 mm safe area.
         dx = label.center().x() - group.center().x()
         dy = label.center().y() - group.center().y()
     elif mode == "top":
-        dx = label.center().x() - group.center().x()
-        dy = label.top() - group.top()
+        dx = safe.center().x() - group.center().x()
+        dy = safe.top() - group.top()
     elif mode == "bottom":
-        dx = label.center().x() - group.center().x()
-        dy = label.bottom() - group.bottom()
+        dx = safe.center().x() - group.center().x()
+        dy = safe.bottom() - group.bottom()
     elif mode == "left":
-        dx = label.left() - group.left()
-        dy = label.center().y() - group.center().y()
+        dx = safe.left() - group.left()
+        dy = safe.center().y() - group.center().y()
     elif mode == "right":
-        dx = label.right() - group.right()
-        dy = label.center().y() - group.center().y()
+        dx = safe.right() - group.right()
+        dy = safe.center().y() - group.center().y()
+    elif mode == "top-left":
+        dx = safe.left() - group.left()
+        dy = safe.top() - group.top()
+    elif mode == "top-right":
+        dx = safe.right() - group.right()
+        dy = safe.top() - group.top()
+    elif mode == "bottom-left":
+        dx = safe.left() - group.left()
+        dy = safe.bottom() - group.bottom()
+    elif mode == "bottom-right":
+        dx = safe.right() - group.right()
+        dy = safe.bottom() - group.bottom()
     else:
         return False
 
@@ -134,7 +159,7 @@ def _install_alignment_card(window):
     title.setProperty("sectionTitle", True)
     outer.addWidget(title)
 
-    desc = QLabel("Alinea la selección completa respecto de los 40×12 mm de la etiqueta.")
+    desc = QLabel("Centro exacto; bordes y esquinas respetan una zona segura interna de 1 mm.")
     desc.setWordWrap(True)
     desc.setProperty("muted", True)
     outer.addWidget(desc)
@@ -143,11 +168,15 @@ def _install_alignment_card(window):
     grid.setSpacing(5)
 
     specs = [
-        ("top", "↑", "Arriba-centro", 0, 1),
-        ("left", "←", "Izquierda-centro", 1, 0),
+        ("top-left", "↖", "Esquina superior izquierda · margen seguro 1 mm", 0, 0),
+        ("top", "↑", "Arriba-centro · margen seguro 1 mm", 0, 1),
+        ("top-right", "↗", "Esquina superior derecha · margen seguro 1 mm", 0, 2),
+        ("left", "←", "Izquierda-centro · margen seguro 1 mm", 1, 0),
         ("center", "◎", "Centro exacto", 1, 1),
-        ("right", "→", "Derecha-centro", 1, 2),
-        ("bottom", "↓", "Abajo-centro", 2, 1),
+        ("right", "→", "Derecha-centro · margen seguro 1 mm", 1, 2),
+        ("bottom-left", "↙", "Esquina inferior izquierda · margen seguro 1 mm", 2, 0),
+        ("bottom", "↓", "Abajo-centro · margen seguro 1 mm", 2, 1),
+        ("bottom-right", "↘", "Esquina inferior derecha · margen seguro 1 mm", 2, 2),
     ]
     buttons = {}
     for mode, symbol, tip, row, col in specs:
