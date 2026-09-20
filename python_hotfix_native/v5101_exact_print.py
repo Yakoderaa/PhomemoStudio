@@ -5,7 +5,7 @@ from io import BytesIO
 from PIL import Image
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QGraphicsRectItem
 
 from .studio_pro import _find_canvas
 from .v54_assets_session import _is_user_item
@@ -56,7 +56,14 @@ def _label_source_rect(scene) -> QRectF:
                 continue
             brush = item.brush()
             color = brush.color()
-            rect = item.sceneBoundingRect()
+            # Use the rectangle's logical page geometry, excluding its
+            # cosmetic/outline pen. sceneBoundingRect() includes half the pen
+            # on every edge (320x96 becomes ~321x97) and then forces another
+            # rescale at print time.
+            if isinstance(item, QGraphicsRectItem):
+                rect = item.mapRectToScene(item.rect()).boundingRect()
+            else:
+                rect = item.sceneBoundingRect()
             if (
                 color.alpha() >= 240
                 and color.red() >= 238
