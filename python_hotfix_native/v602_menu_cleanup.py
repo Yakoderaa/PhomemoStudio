@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu, QPushButton
+from PySide6.QtWidgets import QFrame, QMenu, QPushButton
 
 from .studio_pro import _call_first, _find_legacy_button
 
 
 def _remove_header_actions(window):
-    header = window.findChild(type(getattr(window, "_v51_header", None)) if getattr(window, "_v51_header", None) else object, "v51Header")
-    # Use the concrete header attribute/name when the generic lookup above is not useful.
-    if header is None:
-        from PySide6.QtWidgets import QFrame
-        header = window.findChild(QFrame, "v51Header")
+    header = window.findChild(QFrame, "v51Header")
     if header is None:
         return
 
-    for button in list(header.findChildren(QPushButton, options=None)):
+    for button in list(header.findChildren(QPushButton)):
         text = button.text().replace("&", "").strip().casefold()
         if text in {"guardar", "duplicar", "png"}:
             button.hide()
