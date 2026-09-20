@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path python_app | Out-Null
           Expand-Archive -Path python_src_v4.zip -DestinationPath python_app -Force
 
-      - name: Apply 6.0.3 app enhancements
+      - name: Apply 6.0.4 app enhancements
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -67,11 +67,12 @@ jobs:
           python python_hotfix_native\v602_menu_cleanup_patch.py
           python python_hotfix_native\v602_taskbar_icon_patch.py
           python python_hotfix_native\v603_print_queue_concentration_patch.py
+          python python_hotfix_native\v604_alignment_multiselect_patch.py
           $initPath = "python_app\phomemo_studio\__init__.py"
           $init = Get-Content $initPath -Raw
-          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.3"')
+          $init = $init.Replace('__version__ = "4.0.0"', '__version__ = "6.0.4"')
           Set-Content -Path $initPath -Value $init -Encoding utf8 -NoNewline
-          Write-Host "Applied 6.0.3: centered 40x12 print + concentration selector + unified normal/queue printing"
+          Write-Host "Applied 6.0.4: alignment + restored transform handles + multiselect + Illustrator Alt/Shift drag"
 
       - name: Restore transparent Sr Gato assets
         shell: pwsh
@@ -126,6 +127,7 @@ jobs:
           python python_hotfix_native\v602_smoke.py
           python python_hotfix_native\v602_taskbar_smoke.py
           python python_hotfix_native\v603_smoke.py
+          python python_hotfix_native\v604_smoke.py
 
       - name: Build native BLE bridge
         shell: pwsh
@@ -187,7 +189,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PhomemoStudio-${{ steps.version.outputs.value }}-Print603
+          name: PhomemoStudio-${{ steps.version.outputs.value }}-Studio604
           path: |
             python_app/dist/PhomemoStudioSetup.exe
             python_app/dist/PhomemoStudioSetup.exe.sha256
@@ -205,6 +207,6 @@ jobs:
           $tag = "v${{ steps.version.outputs.value }}"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.3: corrige el centrado físico de las etiquetas de 40×12 mm aplicando una compensación mecánica de 1 mm (8 puntos a 203 dpi) en el eje largo de la D30 sin modificar el diseño en pantalla. Agrega arriba, separado del bloque Conectar/Batería/Papel/Rollo, un selector de Concentración de impresión con Liviana=3/8, Estándar=6/8 y Concentrada=8/8, conectado a la densidad térmica real del protocolo D30. La Cola deja de usar el renderizador viejo por Element y almacena el mismo raster exacto que usa Imprimir; Imprimir todo reconstruye los mismos make_print_packet que el botón normal, de modo que ambos caminos imprimen el mismo diseño y respetan la concentración seleccionada. Se mantienen V6, tema oscuro, zoom, 40×12 mm exactos, capas, diseños persistentes, actualizador independiente e icono de barra de tareas."
+            gh release create $tag --target main --title "Phomemo Studio $tag" --notes "V6.0.4: agrega Alinear a etiqueta para cualquier selección con Centro, Arriba-centro, Abajo-centro, Izquierda-centro y Derecha-centro; si hay varios objetos seleccionados se alinea el conjunto conservando su distribución interna. Restaura completamente la respuesta visual de selección: objetos, imágenes y textos vuelven a mostrar caja, 8 tiradores de tamaño y 4 controles de rotación; las líneas vuelven a mostrar sus dos tiradores de longitud y controles de rotación, manteniendo el grosor exclusivamente en Propiedades. Incorpora selección múltiple estilo Illustrator: Shift+clic agrega, Ctrl+clic quita/agrega, arrastre en vacío crea marco de selección, Ctrl+A selecciona todo, y una selección múltiple se puede mover, copiar o borrar en conjunto. Alt+arrastrar duplica y mueve la copia; Shift+arrastrar restringe horizontal/verticalmente; Alt+Shift duplica y mueve ortogonalmente. Se mantiene V6.0.3 con impresión 40×12 centrada, concentración Liviana/Estándar/Concentrada y cola unificada con el mismo raster que Imprimir."
           }
           gh release upload $tag python_app\dist\PhomemoStudioSetup.exe python_app\dist\PhomemoStudioSetup.exe.sha256 --clobber
