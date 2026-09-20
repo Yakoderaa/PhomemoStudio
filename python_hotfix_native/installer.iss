@@ -27,8 +27,8 @@ Source: "dist\PhomemoStudio.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\PhomemoBleBridge.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\PhomemoStudioUpdater.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "Yakoderaa.PhomemoStudio"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "Yakoderaa.PhomemoStudio"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: unchecked
 [Run]
